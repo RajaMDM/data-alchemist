@@ -135,7 +135,7 @@ const JOURNEY = [
   {id:"ai",  label:"AI-Native Future",icon:"🤖"},
 ];
 
-const BSYS = `You are ALCH — the AI tutor inside "The Data Alchemist", a fun data management training platform built by Raja Shahnawaz Soni (MDM Practitioner & AI-Powered Data Management Enthusiast, raja.cloudmdm@gmail.com).
+const BSYS = `You are ALCH — the AI tutor inside "The Data Alchemist", a fun data management learning platform built by Raja Shahnawaz Soni (MDM Practitioner & AI-Powered Data Management Enthusiast, raja.cloudmdm@gmail.com).
 Data journey: Source Systems → ETL/ELT (done) → Data Quality → MDM → Publication → Data Governance.
 Style: sharp, energetic, zero boring. Real-world analogies always. Punchy answers unless depth asked. Celebrate "I don't know" loudly. Connect everything to the data journey.`;
 
@@ -391,6 +391,9 @@ const ChatModal = ({apiKey, mod, mode, onClose}) => {
     confess:{ icon:"🎪", label:"Confession Booth", ph:"What don't you actually understand?", model:MH,
       starter:`Confession Booth 🎪 Zero judgment. Zero shame. What's really confusing you? Even the stuff you'd never ask in class.`,
       sys:`${BSYS}\nCONFESSION BOOTH: No judgment. Simplest explanation + one great analogy. Check if it clicked. Celebrate honesty.` },
+    socratic:{ icon:"🏛️", label:"Socratic Dialogue", ph:"Answer, or ask — the dialogue leads you there…", model:MH,
+      starter:`Welcome to Socratic Dialogue 🏛️\n\nI won't explain anything directly. Instead I'll ask you questions — one at a time — that guide you to the answer yourself.\n\nThat's the deal: I question, you think, you discover.\n\nLet's start with ${mod.label}. Tell me — what do you already think you know about it?`,
+      sys:`${BSYS}\nSOCRATIC MODE for ${mod.label}: You are a Socratic teacher. NEVER give direct answers or explanations. ONLY ask probing questions that lead the student to discover the concept themselves. One question at a time. If they answer well, acknowledge briefly then go deeper with another question. If they answer poorly or say "I don't know", ask a simpler question that breaks the problem down. If they ask you to just explain it, gently decline and reframe as a question instead. Your goal: the student arrives at the insight themselves. End each exchange with exactly one question. Be warm but relentless.` },
   };
   const cf = cfgs[mode] || cfgs.tutor;
   const c  = mod.hex;
@@ -622,6 +625,480 @@ const ProbeSession = ({apiKey, onClose}) => {
 };
 
 // ─── MODULE CARD ──────────────────────────────────────────────────────────
+// ─── INTERACTIVE DIAGRAMS ─────────────────────────────────────────────────
+
+// DQ: 6 Dimensions Wheel
+const DQWheel = ({hex}) => {
+  const [sel,setSel] = React.useState(null);
+  const dims = [
+    {id:"completeness", label:"Completeness", icon:"🧩", color:"#0284C7",
+     def:"Are all required fields populated?",
+     example:"A customer record missing phone number → 80% complete",
+     mistake:"Confusing completeness with accuracy — a field can be filled but wrong"},
+    {id:"accuracy",     label:"Accuracy",     icon:"🎯", color:"#059669",
+     def:"Does the data correctly reflect reality?",
+     example:"Customer address shows 'Dubai' but they moved to Abu Dhabi",
+     mistake:"Assuming sourced data is automatically accurate — validate against authoritative sources"},
+    {id:"consistency",  label:"Consistency",  icon:"🔄", color:"#D97706",
+     def:"Is the same data stored the same way across systems?",
+     example:"CRM shows DOB as 1990-01-15, ERP shows 15/01/90 — same person, different format",
+     mistake:"Treating consistency as a formatting issue only — it's also about conflicting values"},
+    {id:"timeliness",   label:"Timeliness",   icon:"⏱️", color:"#6D28D9",
+     def:"Is data available when needed and reflecting current state?",
+     example:"Stock price updated every 15 mins — stale for high-frequency trading",
+     mistake:"Focusing on recency without defining what 'timely enough' means for the use case"},
+    {id:"uniqueness",   label:"Uniqueness",   icon:"☝️", color:"#E11D48",
+     def:"Is each entity represented exactly once?",
+     example:"Same customer in CRM as 'John Smith' and 'J. Smith' — two records, one person",
+     mistake:"Treating deduplication as a one-time exercise — duplicates re-enter continuously"},
+    {id:"validity",     label:"Validity",     icon:"✅", color:"#0891B2",
+     def:"Does data conform to defined rules, formats and constraints?",
+     example:"Email field contains 'N/A' — technically filled (complete) but not a valid email",
+     mistake:"Conflating validity with accuracy — valid data can still be factually wrong"},
+  ];
+  const cx=160, cy=160, R=110, r=48;
+  return (
+    <div style={{background:"#F8FAFC",border:"1.5px solid #D9E8F7",borderRadius:16,padding:20,marginBottom:18}}>
+      <div style={{fontSize:10,color:hex,letterSpacing:2,fontWeight:700,marginBottom:14}}>🔬 THE 6 DQ DIMENSIONS — click any segment</div>
+      <div style={{display:"flex",gap:20,alignItems:"flex-start",flexWrap:"wrap"}}>
+        <svg width="320" height="320" viewBox="0 0 320 320" style={{flex:"0 0 320px"}}>
+          {dims.map((d,i)=>{
+            const angle = (i/6)*Math.PI*2 - Math.PI/2;
+            const a1=(i/6)*Math.PI*2-Math.PI/2, a2=((i+1)/6)*Math.PI*2-Math.PI/2;
+            const x1=cx+R*Math.cos(a1),y1=cy+R*Math.sin(a1);
+            const x2=cx+R*Math.cos(a2),y2=cy+R*Math.sin(a2);
+            const xi1=cx+r*Math.cos(a1),yi1=cy+r*Math.sin(a1);
+            const xi2=cx+r*Math.cos(a2),yi2=cy+r*Math.sin(a2);
+            const mx=cx+(R+r)/2*Math.cos(angle+Math.PI/6);
+            const my=cy+(R+r)/2*Math.sin(angle+Math.PI/6);
+            const isSelected=sel===d.id;
+            return (
+              <g key={d.id} onClick={()=>setSel(sel===d.id?null:d.id)} style={{cursor:"pointer"}}>
+                <path d={`M ${xi1} ${yi1} L ${x1} ${y1} A ${R} ${R} 0 0 1 ${x2} ${y2} L ${xi2} ${yi2} A ${r} ${r} 0 0 0 ${xi1} ${yi1}`}
+                  fill={isSelected?d.color:d.color+"25"} stroke="#fff" strokeWidth="3"
+                  style={{transition:"all .2s",filter:isSelected?"drop-shadow(0 4px 12px "+d.color+"66)":"none"}}/>
+                <text x={mx} y={my-7} textAnchor="middle" fontSize="16" style={{pointerEvents:"none"}}>{d.icon}</text>
+                <text x={mx} y={my+10} textAnchor="middle" fontSize="9" fontWeight="700"
+                  fill={isSelected?"#fff":d.color} style={{pointerEvents:"none"}}>{d.label}</text>
+              </g>
+            );
+          })}
+          <circle cx={cx} cy={cy} r={r-4} fill="#fff" stroke="#E2E8F0" strokeWidth="2"/>
+          <text x={cx} y={cy-6} textAnchor="middle" fontSize="18">🔬</text>
+          <text x={cx} y={cy+10} textAnchor="middle" fontSize="9" fontWeight="700" fill="#4A6FA5">6 DQ</text>
+          <text x={cx} y={cy+22} textAnchor="middle" fontSize="9" fill="#94A3B8">Dimensions</text>
+        </svg>
+        <div style={{flex:1,minWidth:200}}>
+          {sel ? (() => { const d=dims.find(x=>x.id===sel); return (
+            <div style={{background:"#fff",border:`2px solid ${d.color}44`,borderRadius:14,padding:18,animation:"shimIn .25s ease"}}>
+              <div style={{fontSize:22,marginBottom:6}}>{d.icon}</div>
+              <div style={{fontFamily:"Bricolage Grotesque,sans-serif",fontSize:16,fontWeight:800,color:d.color,marginBottom:10}}>{d.label}</div>
+              <div style={{fontSize:12,fontWeight:700,color:"#7A9CC4",letterSpacing:1,marginBottom:4}}>DEFINITION</div>
+              <div style={{fontSize:13,color:"#1A3050",marginBottom:12,lineHeight:1.7}}>{d.def}</div>
+              <div style={{fontSize:12,fontWeight:700,color:"#7A9CC4",letterSpacing:1,marginBottom:4}}>REAL-WORLD EXAMPLE</div>
+              <div style={{fontSize:13,color:"#4A6FA5",marginBottom:12,lineHeight:1.7,fontStyle:"italic"}}>{d.example}</div>
+              <div style={{fontSize:12,fontWeight:700,color:"#E11D48",letterSpacing:1,marginBottom:4}}>COMMON MISTAKE ⚠️</div>
+              <div style={{fontSize:13,color:"#E11D48",lineHeight:1.7}}>{d.mistake}</div>
+            </div>
+          )})() : (
+            <div style={{color:"#94A3B8",fontSize:13,textAlign:"center",marginTop:60}}>
+              <div style={{fontSize:32,marginBottom:12}}>👆</div>
+              Click any segment to explore that dimension — definition, real-world example, and the mistake everyone makes
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ETL/ELT: Interactive Pipeline Flow
+const ETLFlow = ({hex}) => {
+  const [sel,setSel] = React.useState(null);
+  const [mode,setMode] = React.useState("etl");
+  const stages = {
+    etl:[
+      {id:"extract",    icon:"📤", label:"Extract",   color:"#059669", light:"#ECFDF5",
+       what:"Pull raw data from source systems — databases, APIs, files, streams.",
+       how:"Full extract (snapshot) or incremental (delta/CDC). Must handle timeouts, retries, schema drift.",
+       gotcha:"Source systems get hit directly — heavy extracts can degrade production performance."},
+      {id:"transform",  icon:"⚙️", label:"Transform",  color:"#D97706", light:"#FFFBEB",
+       what:"Cleanse, reshape, enrich, and apply business rules before loading.",
+       how:"Happens in a dedicated ETL engine or middleware. Joins, aggregations, deduplication, type coercion.",
+       gotcha:"Transformation bottleneck — complex logic here is where ETL pipelines slow down."},
+      {id:"load",       icon:"📥", label:"Load",       color:"#0284C7", light:"#E0F2FE",
+       what:"Write the transformed data into the target system — DW, data lake, MDM hub.",
+       how:"Full load (truncate + reload) or incremental (upsert/merge). Manage indexes, locks, constraints.",
+       gotcha:"Load failures midway leave target in a partial state — always design for idempotency."},
+    ],
+    elt:[
+      {id:"extract",    icon:"📤", label:"Extract",   color:"#059669", light:"#ECFDF5",
+       what:"Pull raw data from sources and land it as-is into the target (data lake/cloud DW).",
+       how:"Typically lighter — no transformation logic needed at extraction time. Raw zone landing.",
+       gotcha:"Raw data accumulates fast — data lake becomes a data swamp without governance."},
+      {id:"load",       icon:"📥", label:"Load (Raw)", color:"#0284C7", light:"#E0F2FE",
+       what:"Load raw, untransformed data directly into the target storage layer.",
+       how:"Cheap cloud storage means you load first, ask questions later. Parquet, Delta, Iceberg formats.",
+       gotcha:"Schema-on-read sounds flexible — until different teams interpret the same raw data differently."},
+      {id:"transform",  icon:"⚙️", label:"Transform",  color:"#D97706", light:"#FFFBEB",
+       what:"Transform inside the target using its compute power (dbt, Spark, BigQuery SQL).",
+       how:"T happens in the warehouse/lake. Multiple transformation layers: raw → cleansed → curated → mart.",
+       gotcha:"Transformation logic scattered across SQL models — version control and testing become critical."},
+    ]
+  };
+  const cur = stages[mode];
+  return (
+    <div style={{background:"#F8FAFC",border:"1.5px solid #D9E8F7",borderRadius:16,padding:20,marginBottom:18}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
+        <div style={{fontSize:10,color:hex,letterSpacing:2,fontWeight:700}}>⚙️ PIPELINE FLOW — click any stage</div>
+        <div style={{display:"flex",gap:8}}>
+          {["etl","elt"].map(m=>(
+            <button key={m} onClick={()=>{setMode(m);setSel(null)}}
+              style={{background:mode===m?hex+"20":"#fff",border:`1.5px solid ${mode===m?hex:"#D9E8F7"}`,
+                color:mode===m?hex:"#7A9CC4",borderRadius:20,padding:"5px 16px",fontSize:12,
+                fontWeight:700,cursor:"pointer",letterSpacing:1}}>{m.toUpperCase()}</button>
+          ))}
+        </div>
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:0,justifyContent:"center",flexWrap:"wrap",rowGap:12,marginBottom:16}}>
+        {cur.map((s,i)=>(
+          <React.Fragment key={s.id+mode}>
+            <div onClick={()=>setSel(sel===s.id?null:s.id)}
+              style={{background:sel===s.id?s.color:s.light,border:`2px solid ${s.color}${sel===s.id?"ff":"66"}`,
+                borderRadius:16,padding:"16px 22px",textAlign:"center",cursor:"pointer",minWidth:120,
+                transition:"all .2s",transform:sel===s.id?"scale(1.06)":"scale(1)",
+                boxShadow:sel===s.id?`0 6px 20px ${s.color}44`:"none"}}>
+              <div style={{fontSize:28,marginBottom:6}}>{s.icon}</div>
+              <div style={{fontFamily:"Bricolage Grotesque,sans-serif",fontSize:14,fontWeight:800,
+                color:sel===s.id?"#fff":s.color}}>{s.label}</div>
+            </div>
+            {i<cur.length-1 && (
+              <div style={{fontSize:22,color:sel?(cur[i].color):"#CBD5E1",padding:"0 6px",fontWeight:700}}>→</div>
+            )}
+          </React.Fragment>
+        ))}
+      </div>
+      {sel && (() => { const s=cur.find(x=>x.id===sel); return (
+        <div style={{background:"#fff",border:`2px solid ${s.color}44`,borderRadius:14,padding:18,animation:"shimIn .25s ease"}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14}}>
+            <div><div style={{fontSize:11,fontWeight:700,color:s.color,letterSpacing:1,marginBottom:6}}>WHAT</div>
+              <div style={{fontSize:13,color:"#1A3050",lineHeight:1.7}}>{s.what}</div></div>
+            <div><div style={{fontSize:11,fontWeight:700,color:s.color,letterSpacing:1,marginBottom:6}}>HOW</div>
+              <div style={{fontSize:13,color:"#4A6FA5",lineHeight:1.7}}>{s.how}</div></div>
+            <div><div style={{fontSize:11,fontWeight:700,color:"#E11D48",letterSpacing:1,marginBottom:6}}>GOTCHA ⚠️</div>
+              <div style={{fontSize:13,color:"#E11D48",lineHeight:1.7}}>{s.gotcha}</div></div>
+          </div>
+        </div>
+      )})()}
+      {!sel && <div style={{textAlign:"center",color:"#94A3B8",fontSize:13,padding:"8px 0"}}>👆 Click Extract, Transform or Load to see what happens inside each stage</div>}
+    </div>
+  );
+};
+
+// MDM: Match → Merge → Survive → Golden Record animation
+const MDMFlow = ({hex}) => {
+  const [step,setStep] = React.useState(0);
+  const steps = [
+    {id:"raw", label:"Raw Records", icon:"🗃️", color:"#94A3B8",
+     desc:"Two records exist in different source systems — same person, different data.",
+     records:[
+       {sys:"CRM",    name:"John Smith",   email:"jsmith@email.com", phone:"050-111-2222", dob:"1985-03-15", addr:"Dubai Marina, Dubai"},
+       {sys:"ERP",    name:"J. Smith",     email:"john.smith@co.com",phone:"",             dob:"15/03/1985",  addr:"Marina, DXB"},
+     ]},
+    {id:"match", label:"Match", icon:"🔍", color:"#D97706",
+     desc:"Matching algorithms compare records using fuzzy name match, DOB similarity, and address proximity. Match score: 94%.",
+     records:[
+       {sys:"CRM",    name:"John Smith",   email:"jsmith@email.com", phone:"050-111-2222", dob:"1985-03-15", addr:"Dubai Marina, Dubai", score:"✅ MATCH"},
+       {sys:"ERP",    name:"J. Smith",     email:"john.smith@co.com",phone:"",             dob:"15/03/1985",  addr:"Marina, DXB", score:"✅ MATCH"},
+     ]},
+    {id:"trust", label:"Trust Score", icon:"⚖️", color:"#6D28D9",
+     desc:"Each attribute is scored by source trust. CRM owns contact data; ERP owns identity. Trust rules determine which value wins.",
+     trust:[
+       {attr:"Name",  crm:95, erp:60,  winner:"CRM"},
+       {attr:"Email (Primary)", crm:90, erp:55, winner:"CRM"},
+       {attr:"Phone", crm:85, erp:0,   winner:"CRM"},
+       {attr:"DOB",   crm:70, erp:95,  winner:"ERP"},
+       {attr:"Address",crm:90,erp:50,  winner:"CRM"},
+     ]},
+    {id:"golden", label:"Golden Record", icon:"🏆", color:"#D97706",
+     desc:"The surviving golden record is created — best attribute from each source, stored in the MDM hub, published to all systems.",
+     records:[
+       {sys:"GOLDEN ✨", name:"John Smith", email:"jsmith@email.com", phone:"050-111-2222", dob:"1985-03-15", addr:"Dubai Marina, Dubai"},
+     ]},
+  ];
+  const cur=steps[step];
+  return (
+    <div style={{background:"#F8FAFC",border:"1.5px solid #D9E8F7",borderRadius:16,padding:20,marginBottom:18}}>
+      <div style={{fontSize:10,color:hex,letterSpacing:2,fontWeight:700,marginBottom:16}}>🏆 MATCH → MERGE → SURVIVE → GOLDEN RECORD</div>
+      {/* Step nav */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:0,marginBottom:18,flexWrap:"wrap",rowGap:8}}>
+        {steps.map((s,i)=>(
+          <React.Fragment key={s.id}>
+            <div onClick={()=>setStep(i)}
+              style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,cursor:"pointer",
+                background:step===i?s.color:"#fff",border:`2px solid ${step===i?s.color:s.color+"44"}`,
+                borderRadius:12,padding:"10px 18px",transition:"all .2s",
+                transform:step===i?"scale(1.06)":"scale(1)"}}>
+              <div style={{fontSize:20}}>{s.icon}</div>
+              <div style={{fontSize:11,fontWeight:700,color:step===i?"#fff":s.color,whiteSpace:"nowrap"}}>{s.label}</div>
+            </div>
+            {i<steps.length-1 && <div style={{fontSize:18,color:"#CBD5E1",padding:"0 4px",fontWeight:700}}>→</div>}
+          </React.Fragment>
+        ))}
+      </div>
+      <div style={{background:"#fff",border:`2px solid ${cur.color}33`,borderRadius:14,padding:18,animation:"shimIn .25s ease"}}>
+        <div style={{fontSize:13,color:"#4A6FA5",marginBottom:14,lineHeight:1.6}}>{cur.desc}</div>
+        {cur.records && (
+          <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+            {cur.records.map((r,i)=>(
+              <div key={i} style={{flex:1,minWidth:200,background:r.sys.includes("GOLDEN")?hex+"15":"#F8FAFC",
+                border:`1.5px solid ${r.sys.includes("GOLDEN")?hex+"66":"#E2E8F0"}`,borderRadius:12,padding:14}}>
+                <div style={{fontSize:11,fontWeight:700,color:r.sys.includes("GOLDEN")?hex:"#7A9CC4",
+                  letterSpacing:1,marginBottom:10}}>{r.sys} {r.score||""}</div>
+                {[["👤 Name",r.name],["📧 Email",r.email],["📱 Phone",r.phone||"—"],["🎂 DOB",r.dob],["📍 Address",r.addr]].map(([l,v])=>(
+                  <div key={l} style={{display:"flex",gap:6,marginBottom:5,fontSize:12}}>
+                    <span style={{color:"#94A3B8",minWidth:70}}>{l}</span>
+                    <span style={{color:v&&v!=="—"?"#1A3050":"#CBD5E1",fontWeight:v&&v!=="—"?500:400}}>{v||"—"}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+        {cur.trust && (
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 80px",gap:8,marginBottom:4}}>
+              {["Attribute","CRM Score","ERP Score","Winner"].map(h=>(
+                <div key={h} style={{fontSize:10,fontWeight:700,color:"#7A9CC4",letterSpacing:1}}>{h}</div>
+              ))}
+            </div>
+            {cur.trust.map(t=>(
+              <div key={t.attr} style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 80px",gap:8,alignItems:"center",
+                background:t.winner==="CRM"?"#E0F2FE10":"#F5F3FF10",borderRadius:8,padding:"6px 8px"}}>
+                <div style={{fontSize:12,fontWeight:600,color:"#1A3050"}}>{t.attr}</div>
+                <div>
+                  <div style={{background:"#E2E8F0",borderRadius:4,height:8,overflow:"hidden"}}>
+                    <div style={{width:`${t.crm}%`,height:"100%",background:"#0284C7",borderRadius:4,transition:"width .4s"}}/>
+                  </div>
+                  <div style={{fontSize:10,color:"#0284C7",marginTop:2}}>{t.crm}/100</div>
+                </div>
+                <div>
+                  <div style={{background:"#E2E8F0",borderRadius:4,height:8,overflow:"hidden"}}>
+                    <div style={{width:`${t.erp}%`,height:"100%",background:"#6D28D9",borderRadius:4,transition:"width .4s"}}/>
+                  </div>
+                  <div style={{fontSize:10,color:"#6D28D9",marginTop:2}}>{t.erp}/100</div>
+                </div>
+                <div style={{fontSize:11,fontWeight:700,color:t.winner==="CRM"?"#0284C7":"#6D28D9",
+                  background:t.winner==="CRM"?"#E0F2FE":"#F5F3FF",borderRadius:6,padding:"3px 8px",textAlign:"center"}}>
+                  {t.winner} ✓
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",marginTop:12}}>
+        <button onClick={()=>setStep(Math.max(0,step-1))} disabled={step===0}
+          style={{background:step>0?hex+"15":"#F1F5F9",border:`1.5px solid ${step>0?hex+"44":"#E2E8F0"}`,
+            color:step>0?hex:"#CBD5E1",borderRadius:10,padding:"7px 18px",fontSize:12,fontWeight:600,cursor:step>0?"pointer":"default"}}>← Back</button>
+        <span style={{fontSize:12,color:"#94A3B8",marginTop:8}}>{step+1} / {steps.length}</span>
+        <button onClick={()=>setStep(Math.min(steps.length-1,step+1))} disabled={step===steps.length-1}
+          style={{background:step<steps.length-1?hex+"15":"#F1F5F9",border:`1.5px solid ${step<steps.length-1?hex+"44":"#E2E8F0"}`,
+            color:step<steps.length-1?hex:"#CBD5E1",borderRadius:10,padding:"7px 18px",fontSize:12,fontWeight:600,cursor:step<steps.length-1?"pointer":"default"}}>Next →</button>
+      </div>
+    </div>
+  );
+};
+
+// MDM: Hierarchy Tree
+const MDMHierarchy = ({hex}) => {
+  const [sel,setSel] = React.useState(null);
+  const [domain,setDomain] = React.useState("customer");
+  const trees = {
+    customer:{
+      label:"Customer Hierarchy",
+      root:{id:"global",label:"Global Parent",icon:"🌐",type:"Ultimate Parent",color:"#D97706",children:[
+        {id:"region1",label:"EMEA Region",icon:"🌍",type:"Region",color:"#0284C7",children:[
+          {id:"ae",label:"UAE Entity",icon:"🇦🇪",type:"Legal Entity",color:"#059669",children:[
+            {id:"dubai",label:"Dubai Branch",icon:"🏢",type:"Branch",color:"#6D28D9",children:[]},
+            {id:"auh",  label:"Abu Dhabi Branch",icon:"🏢",type:"Branch",color:"#6D28D9",children:[]},
+          ]},
+          {id:"ksa",label:"KSA Entity",icon:"🇸🇦",type:"Legal Entity",color:"#059669",children:[]},
+        ]},
+        {id:"region2",label:"APAC Region",icon:"🌏",type:"Region",color:"#0284C7",children:[
+          {id:"sg",label:"Singapore Entity",icon:"🇸🇬",type:"Legal Entity",color:"#059669",children:[]},
+        ]},
+      ]},
+    },
+    product:{
+      label:"Product Hierarchy",
+      root:{id:"cat",label:"All Products",icon:"📦",type:"Category Root",color:"#D97706",children:[
+        {id:"soft",label:"Software",icon:"💻",type:"Category",color:"#0284C7",children:[
+          {id:"cloud",label:"Cloud Products",icon:"☁️",type:"Sub-Category",color:"#059669",children:[
+            {id:"idmc",label:"IDMC",icon:"⚗️",type:"Product",color:"#6D28D9",children:[]},
+            {id:"mdc",label:"MDC",icon:"🔬",type:"Product",color:"#6D28D9",children:[]},
+          ]},
+        ]},
+        {id:"hw",label:"Hardware",icon:"🖥️",type:"Category",color:"#0284C7",children:[
+          {id:"server",label:"Servers",icon:"🗄️",type:"Sub-Category",color:"#059669",children:[]},
+        ]},
+      ]},
+    },
+  };
+  const tree = trees[domain];
+  const infos = {
+    "Ultimate Parent":"The top of the hierarchy — consolidates all child entities. Used for group-level reporting, credit limits, and global KPIs.",
+    "Region":"Geographic or organisational grouping below the global parent. Drives regional P&L, compliance, and data sovereignty rules.",
+    "Legal Entity":"A legally registered company. Critical for financial reporting, regulatory compliance, and contract management.",
+    "Branch":"An operational unit of a legal entity — shares the parent's legal registration but operates independently.",
+    "Category Root":"Top-level product classification — all products roll up here for enterprise-wide product analytics.",
+    "Category":"Major product grouping — drives catalog structure, pricing tiers, and procurement categories.",
+    "Sub-Category":"Granular product classification below category — enables precise inventory management and supplier mapping.",
+    "Product":"The leaf node — the actual SKU or product entity with its own attributes, pricing, and lifecycle.",
+  };
+  const renderNode=(node,depth=0)=>{
+    const isSelected=sel===node.id;
+    return (
+      <div key={node.id} style={{marginLeft:depth*24}}>
+        <div onClick={()=>setSel(isSelected?null:node.id)}
+          style={{display:"inline-flex",alignItems:"center",gap:8,padding:"7px 14px",
+            background:isSelected?node.color:"#fff",border:`1.5px solid ${node.color}${isSelected?"ff":"55"}`,
+            borderRadius:10,cursor:"pointer",marginBottom:6,transition:"all .15s",
+            boxShadow:isSelected?`0 4px 12px ${node.color}33`:"none"}}>
+          <span style={{fontSize:16}}>{node.icon}</span>
+          <span style={{fontSize:12,fontWeight:700,color:isSelected?"#fff":node.color}}>{node.label}</span>
+          <span style={{fontSize:10,color:isSelected?"#fff99":node.color+"99",
+            background:isSelected?"#ffffff22":node.color+"15",borderRadius:6,padding:"1px 7px"}}>{node.type}</span>
+        </div>
+        {node.children.length>0 && (
+          <div style={{borderLeft:`2px dashed ${node.color}33`,marginLeft:20,paddingLeft:12,marginBottom:4}}>
+            {node.children.map(c=>renderNode(c,0))}
+          </div>
+        )}
+      </div>
+    );
+  };
+  const selNode = sel ? (function find(n){if(n.id===sel)return n;for(const c of n.children){const r=find(c);if(r)return r;}return null;})(tree.root) : null;
+  return (
+    <div style={{background:"#F8FAFC",border:"1.5px solid #D9E8F7",borderRadius:16,padding:20,marginBottom:18}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:10}}>
+        <div style={{fontSize:10,color:hex,letterSpacing:2,fontWeight:700}}>🌳 MDM HIERARCHIES — click any node</div>
+        <div style={{display:"flex",gap:8}}>
+          {Object.entries(trees).map(([k,v])=>(
+            <button key={k} onClick={()=>{setDomain(k);setSel(null)}}
+              style={{background:domain===k?hex+"20":"#fff",border:`1.5px solid ${domain===k?hex:"#D9E8F7"}`,
+                color:domain===k?hex:"#7A9CC4",borderRadius:20,padding:"5px 14px",fontSize:11,
+                fontWeight:700,cursor:"pointer"}}>{v.label}</button>
+          ))}
+        </div>
+      </div>
+      <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
+        <div style={{flex:"0 0 auto"}}>{renderNode(tree.root)}</div>
+        {selNode && (
+          <div style={{flex:1,minWidth:200,background:"#fff",border:`2px solid ${selNode.color}44`,
+            borderRadius:14,padding:16,animation:"shimIn .25s ease",alignSelf:"flex-start"}}>
+            <div style={{fontSize:20,marginBottom:6}}>{selNode.icon}</div>
+            <div style={{fontFamily:"Bricolage Grotesque,sans-serif",fontSize:15,fontWeight:800,
+              color:selNode.color,marginBottom:4}}>{selNode.label}</div>
+            <div style={{fontSize:11,fontWeight:700,color:"#7A9CC4",letterSpacing:1,marginBottom:8}}>{selNode.type.toUpperCase()}</div>
+            <div style={{fontSize:13,color:"#4A6FA5",lineHeight:1.7}}>{infos[selNode.type]}</div>
+            {selNode.children.length>0 && (
+              <div style={{marginTop:10,fontSize:12,color:"#94A3B8"}}>
+                ↳ {selNode.children.length} direct child node{selNode.children.length>1?"s":""}
+              </div>
+            )}
+          </div>
+        )}
+        {!selNode && <div style={{flex:1,color:"#94A3B8",fontSize:13,textAlign:"center",paddingTop:40}}>
+          <div style={{fontSize:28,marginBottom:8}}>🌳</div>
+          Click any node to understand its role in the hierarchy
+        </div>}
+      </div>
+    </div>
+  );
+};
+
+// MDM: Trust Settings Visualizer
+const MDMTrust = ({hex}) => {
+  const [src,setSrc] = React.useState(null);
+  const sources = [
+    {id:"crm",   label:"CRM",          icon:"👥", color:"#0284C7",
+     attrs:[
+       {name:"Customer Name",     score:92, rationale:"CRM is System of Record for customer identity"},
+       {name:"Email Address",     score:88, rationale:"CRM captures verified email at onboarding"},
+       {name:"Phone Number",      score:80, rationale:"CRM updated by sales team — generally reliable"},
+       {name:"Date of Birth",     score:55, rationale:"CRM self-reported — not validated against ID"},
+       {name:"Billing Address",   score:45, rationale:"ERP is more authoritative for financial addresses"},
+     ]},
+    {id:"erp",   label:"ERP",          icon:"🏭", color:"#6D28D9",
+     attrs:[
+       {name:"Customer Name",     score:60, rationale:"ERP uses abbreviated names — not canonical"},
+       {name:"Email Address",     score:40, rationale:"ERP email often outdated — not kept current"},
+       {name:"Phone Number",      score:20, rationale:"Phone rarely captured in ERP transactions"},
+       {name:"Date of Birth",     score:90, rationale:"ERP validated DOB against legal documents"},
+       {name:"Billing Address",   score:95, rationale:"ERP is System of Record for financial/billing data"},
+     ]},
+    {id:"portal", label:"Self-Service Portal", icon:"🌐", color:"#E11D48",
+     attrs:[
+       {name:"Customer Name",     score:70, rationale:"Customer-entered — may contain typos or aliases"},
+       {name:"Email Address",     score:95, rationale:"Portal email is verified via OTP at registration"},
+       {name:"Phone Number",      score:85, rationale:"Portal phone verified via SMS — high confidence"},
+       {name:"Date of Birth",     score:40, rationale:"Self-reported — no validation"},
+       {name:"Billing Address",   score:30, rationale:"Shipping address, not necessarily billing"},
+     ]},
+  ];
+  const getColor=(score)=>score>=80?"#059669":score>=60?"#D97706":"#E11D48";
+  return (
+    <div style={{background:"#F8FAFC",border:"1.5px solid #D9E8F7",borderRadius:16,padding:20,marginBottom:18}}>
+      <div style={{fontSize:10,color:hex,letterSpacing:2,fontWeight:700,marginBottom:14}}>⚖️ TRUST SETTINGS — click a source system</div>
+      <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
+        {sources.map(s=>(
+          <div key={s.id} onClick={()=>setSrc(src===s.id?null:s.id)}
+            style={{flex:1,minWidth:130,background:src===s.id?s.color:"#fff",
+              border:`2px solid ${s.color}${src===s.id?"ff":"55"}`,borderRadius:14,padding:"14px 16px",
+              cursor:"pointer",textAlign:"center",transition:"all .2s",
+              transform:src===s.id?"scale(1.04)":"scale(1)"}}>
+            <div style={{fontSize:24,marginBottom:4}}>{s.icon}</div>
+            <div style={{fontSize:13,fontWeight:700,color:src===s.id?"#fff":s.color}}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+      {src && (() => { const s=sources.find(x=>x.id===src); return (
+        <div style={{background:"#fff",border:`2px solid ${s.color}33`,borderRadius:14,padding:18,animation:"shimIn .25s ease"}}>
+          <div style={{fontSize:12,color:"#4A6FA5",marginBottom:14,lineHeight:1.6}}>
+            Trust scores for <strong style={{color:s.color}}>{s.label}</strong> — higher score = this source wins when records conflict
+          </div>
+          {s.attrs.map(a=>(
+            <div key={a.name} style={{marginBottom:14}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                <span style={{fontSize:13,fontWeight:600,color:"#1A3050"}}>{a.name}</span>
+                <span style={{fontSize:13,fontWeight:700,color:getColor(a.score)}}>{a.score}/100</span>
+              </div>
+              <div style={{background:"#F1F5F9",borderRadius:6,height:10,overflow:"hidden",marginBottom:4}}>
+                <div style={{width:`${a.score}%`,height:"100%",background:getColor(a.score),
+                  borderRadius:6,transition:"width .5s ease"}}/>
+              </div>
+              <div style={{fontSize:11,color:"#7A9CC4",fontStyle:"italic"}}>{a.rationale}</div>
+            </div>
+          ))}
+        </div>
+      )})()}
+      {!src && <div style={{textAlign:"center",color:"#94A3B8",fontSize:13,padding:"16px 0"}}>
+        <div style={{fontSize:28,marginBottom:8}}>⚖️</div>
+        Click a source system to see how much it's trusted for each attribute — and why
+      </div>}
+    </div>
+  );
+};
+
+// Dispatcher — renders the right diagram(s) per module
+const DiagramPanel = ({id, hex, light}) => {
+  if(id==="dq")  return <DQWheel hex={hex}/>;
+  if(id==="etl") return <ETLFlow hex={hex}/>;
+  if(id==="mdm") return <><MDMFlow hex={hex}/><MDMHierarchy hex={hex}/><MDMTrust hex={hex}/></>;
+  return null;
+};
+
 const ModCard = ({apiKey, mod, onChat}) => {
   const [open,setOpen]   = useState(false);
   const [topic,setTopic] = useState(null);
@@ -696,7 +1173,8 @@ const ModCard = ({apiKey, mod, onChat}) => {
               {mode:"tutor",   l:"🤖 AI Tutor",         c:mod.hex},
               {mode:"quiz",    l:"⚡ Quiz Forge",         c:"#D97706"},
               {mode:"explain", l:"🎤 Teach It Back",     c:"#6D28D9"},
-              {mode:"confess", l:"🎪 Confession Booth",  c:"#059669"},
+              {mode:"confess",   l:"🎪 Confession Booth",  c:"#059669"},
+              {mode:"socratic",  l:"🏛️ Socratic Dialogue", c:"#B45309"},
             ].map(b=>(
               <button key={b.mode} onClick={()=>onChat(mod,b.mode)}
                 style={{background:`${b.c}12`,border:`1.5px solid ${b.c}44`,color:b.c,
@@ -704,6 +1182,12 @@ const ModCard = ({apiKey, mod, onChat}) => {
                   cursor:"pointer",transition:"all .15s"}}>{b.l}</button>
             ))}
           </div>
+
+          {(mod.id==="dq"||mod.id==="etl"||mod.id==="mdm") && (
+            <div style={{padding:"0 26px 8px"}}>
+              <DiagramPanel id={mod.id} hex={mod.hex} light={mod.light}/>
+            </div>
+          )}
 
           <div style={{padding:"0 26px 26px"}}>
             <div style={{fontSize:10,color:"#7A9CC4",letterSpacing:2,marginBottom:14,fontWeight:700}}>
@@ -1061,6 +1545,24 @@ const App = () => {
         )}
         {tab==="schedule" && <Schedule/>}
         {tab==="methods"  && <Methods onProbe={()=>setProbe(true)}/>}
+      </div>
+
+      {/* SOCRATIC BANNER */}
+      <div style={{background:"linear-gradient(135deg,#FFFBEB,#FEF3C7)",borderTop:"1.5px solid #FDE68A",padding:"22px 24px",position:"relative",zIndex:1}}>
+        <div style={{maxWidth:1100,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:16}}>
+          <div style={{display:"flex",alignItems:"center",gap:14}}>
+            <div style={{fontSize:36}}>🏛️</div>
+            <div>
+              <div className="dsp" style={{fontSize:16,fontWeight:800,color:"#92400E",marginBottom:3}}>Built on the Socratic Method</div>
+              <div style={{fontSize:13,color:"#B45309",maxWidth:520,lineHeight:1.7}}> ALCH never just tells you the answer. Every Socratic Dialogue session guides you through questions until <em>you</em> arrive at the insight yourself — the oldest and most effective teaching method in existence.</div>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+            {["Question-led learning","No passive consumption","You discover, not receive","Deeper retention","2,400 years proven"].map((t,i)=>(
+              <span key={i} style={{background:"#FEF3C7",border:"1.5px solid #FDE68A",color:"#92400E",borderRadius:20,padding:"4px 13px",fontSize:11,fontWeight:700}}>{t}</span>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* FOOTER */}
