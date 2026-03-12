@@ -78,6 +78,120 @@ async function trackLogin(name, email, org, keyHint) {
   }
 }
 
+// ── SESSION PERSISTENCE (localStorage + Google Sheets cloud sync) ─────────
+const LS = {
+  key: (email) => `alch__${(email||"guest").replace(/[^a-z0-9]/gi,"_").toLowerCase()}`,
+
+  // Local read/write (instant)
+  load:  (email) => { try { return JSON.parse(localStorage.getItem(LS.key(email)) || "{}"); } catch { return {}; } },
+  save:  (email, data) => { try { localStorage.setItem(LS.key(email), JSON.stringify(data)); } catch {} },
+  patch: (email, updater) => {
+    const d = LS.load(email);
+    const next = updater(d);
+    LS.save(email, next);
+    if (email) LS.pushCloud(email, next); // fire-and-forget cloud sync
+  },
+
+  // Cloud push — save session to Google Sheets (async, silent)
+  pushCloud: async (email, data) => {
+    if (!TRACKER_URL || !email) return;
+    try {
+      const { chatHistory, topicCache } = data;
+      await fetch(TRACKER_URL, {
+        method: "POST", mode: "no-cors",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "saveSession", email,
+          name: data._name || "", org: data._org || "",
+          sessionData: { chatHistory: chatHistory||{}, topicCache: topicCache||{} },
+        }),
+      });
+    } catch { /* fail silently */ }
+  },
+
+  // Cloud pull — fetch session from Sheets on login, merge into localStorage
+  pullCloud: async (email) => {
+    if (!TRACKER_URL || !email) return { found: false };
+    try {
+      const url = TRACKER_URL + "?action=getSession&email=" + encodeURIComponent(email);
+      const r   = await fetch(url);
+      if (!r.ok) return { found: false };
+      const json = await r.json();
+      if (json.found && json.sessionData) {
+        const local  = LS.load(email);
+        const merged = {
+          ...local,
+          chatHistory: { ...(local.chatHistory||{}), ...(json.sessionData.chatHistory||{}) },
+          topicCache:  { ...(local.topicCache||{}),  ...(json.sessionData.topicCache||{})  },
+        };
+        LS.save(email, merged);
+        return { found: true, lastSaved: json.lastSaved, saveCount: json.saveCount };
+      }
+      return { found: false };
+    } catch { return { found: false }; }
+  },
+};
+
+// ── MARKDOWN RENDERER ─────────────────────────────────────────────────────
+const parseInline = (str, key) => {
+  const parts = String(str).split(/(\*\*[^*\n]+\*\*|\*[^*\n]+\*|`[^`\n]+`)/g);
+  return parts.map((t, i) => {
+    if (t.startsWith("**") && t.endsWith("**")) return <strong key={i}>{t.slice(2,-2)}</strong>;
+    if (t.startsWith("*")  && t.endsWith("*"))  return <em key={i}>{t.slice(1,-1)}</em>;
+    if (t.startsWith("`")  && t.endsWith("`"))
+      return <code key={i} style={{background:"#F1F5F9",borderRadius:4,padding:"1px 5px",
+        fontSize:"0.88em",fontFamily:"monospace",color:"#0891B2"}}>{t.slice(1,-1)}</code>;
+    return t;
+  });
+};
+const MD = ({text, color}) => {
+  if (!text) return null;
+  const c = color || "#1A3050";
+  const lines = String(text).split("\n");
+  const out = [];
+  let listBuf = [], listType = null;
+  const flushList = () => {
+    if (!listBuf.length) return;
+    const Tag = listType === "ol" ? "ol" : "ul";
+    out.push(React.createElement(Tag, {key:"l"+out.length,
+      style:{paddingLeft:20,margin:"6px 0 8px",color:c}},
+      listBuf.map((li,i) => <li key={i} style={{marginBottom:4,lineHeight:1.75}}>{parseInline(li)}</li>)
+    ));
+    listBuf = []; listType = null;
+  };
+  lines.forEach((raw, i) => {
+    const line = raw;
+    if (/^### /.test(line)) {
+      flushList();
+      out.push(<div key={i} style={{fontWeight:700,fontSize:13.5,color:c,marginTop:12,marginBottom:3}}>{parseInline(line.slice(4))}</div>);
+    } else if (/^## /.test(line)) {
+      flushList();
+      out.push(<div key={i} style={{fontFamily:"Bricolage Grotesque,sans-serif",fontWeight:800,
+        fontSize:15,color:c,marginTop:14,marginBottom:5,
+        borderBottom:"1.5px solid #E2E8F0",paddingBottom:4}}>{parseInline(line.slice(3))}</div>);
+    } else if (/^# /.test(line)) {
+      flushList();
+      out.push(<div key={i} style={{fontFamily:"Bricolage Grotesque,sans-serif",fontWeight:800,
+        fontSize:17,color:c,marginTop:16,marginBottom:8}}>{parseInline(line.slice(2))}</div>);
+    } else if (/^[-*] /.test(line)) {
+      listType = "ul"; listBuf.push(line.slice(2));
+    } else if (/^\d+\. /.test(line)) {
+      listType = "ol"; listBuf.push(line.replace(/^\d+\. /,""));
+    } else if (/^---+$/.test(line.trim())) {
+      flushList();
+      out.push(<hr key={i} style={{border:"none",borderTop:"1.5px solid #E2E8F0",margin:"10px 0"}}/>);
+    } else if (line.trim() === "") {
+      flushList();
+      out.push(<div key={i} style={{height:5}}/>);
+    } else {
+      flushList();
+      out.push(<div key={i} style={{lineHeight:1.85,marginBottom:1,color:c}}>{parseInline(line)}</div>);
+    }
+  });
+  flushList();
+  return <div style={{fontSize:14}}>{out}</div>;
+};
+
 const MODS = [
   { id:"ss", icon:"🗄️", hex:"#059669", light:"#ECFDF5", bdr:"#A7F3D0",
     label:"Foundations of Data & Sources", short:"SS", done:true,
@@ -126,17 +240,17 @@ const MODS = [
 ];
 
 const JOURNEY = [
-  {id:"ss",  label:"Data Sources",   icon:"🗄️", done:true},
-  {id:"etl", label:"ETL / ELT",      icon:"⚙️", done:true},
-  {id:"dq",  label:"Data Quality",   icon:"🔬", active:true},
-  {id:"mdm", label:"MDM",            icon:"🏆"},
-  {id:"pub", label:"Publication",    icon:"📡"},
-  {id:"dg",  label:"Data Governance",icon:"⚖️"},
+  {id:"ss",  label:"Source Systems",  icon:"🗄️", done:true},
+  {id:"etl", label:"Integration",     icon:"⚙️", done:true},
+  {id:"dq",  label:"Data Quality",    icon:"🔬", active:true},
+  {id:"mdm", label:"MDM",             icon:"🏆"},
+  {id:"pub", label:"Publication",     icon:"📡"},
+  {id:"dg",  label:"Governance",      icon:"⚖️"},
   {id:"ai",  label:"AI-Native Future",icon:"🤖"},
 ];
 
 const BSYS = `You are ALCH — the AI tutor inside "The Data Alchemist", a fun data management learning platform built by Raja Shahnawaz Soni (MDM Practitioner & AI-Powered Data Management Enthusiast, raja.cloudmdm@gmail.com).
-Data journey: Source Systems → ETL/ELT (done) → Data Quality → MDM → Publication → Data Governance.
+Data journey: Source Systems → Integration/ETL/ELT (done) → Data Quality → MDM → Publication → Governance → AI-Native Future → Reverse Integration (golden record & mastered data written back to source systems).
 Style: sharp, energetic, zero boring. Real-world analogies always. Punchy answers unless depth asked. Celebrate "I don't know" loudly. Connect everything to the data journey.`;
 
 // ─── API ─────────────────────────────────────────────────────────────────
@@ -227,6 +341,68 @@ const DataBg = () => {
   );
 };
 
+// ─── ROTATING QUOTES ─────────────────────────────────────────────────────
+const QUOTES = [
+  // ── Classic Data ──────────────────────────────────────────────────────
+  { q:"Without data, you're just another person with an opinion.", a:"W. Edwards Deming", cat:"data" },
+  { q:"In God we trust. All others must bring data.", a:"W. Edwards Deming", cat:"data" },
+  { q:"The goal is to turn data into information, and information into insight.", a:"Carly Fiorina, Former CEO, HP", cat:"data" },
+  { q:"It is a capital mistake to theorise before one has data.", a:"Arthur Conan Doyle", cat:"data" },
+  { q:"Torture the data, and it will confess to anything.", a:"Ronald Coase, Nobel Laureate in Economics", cat:"data" },
+  { q:"If you cannot measure it, you cannot improve it.", a:"Lord Kelvin, Physicist", cat:"data" },
+  { q:"The price of light is less than the cost of darkness.", a:"Arthur C. Nielsen, Market Researcher", cat:"data" },
+  { q:"Data are becoming the new raw material of business.", a:"Craig Mundie, Microsoft", cat:"data" },
+  { q:"Errors using inadequate data are much less than those using no data at all.", a:"Charles Babbage, Mathematician", cat:"data" },
+  // ── AI ────────────────────────────────────────────────────────────────
+  { q:"AI is probably the most important thing humanity has ever worked on. I think of it as something more profound than electricity or fire.", a:"Sundar Pichai, CEO, Google", cat:"ai" },
+  { q:"Artificial intelligence is the new electricity.", a:"Andrew Ng, AI Pioneer", cat:"ai" },
+  { q:"We are at a point where AI is able to perform tasks that, until recently, only humans could do.", a:"Fei-Fei Li, Stanford AI Lab", cat:"ai" },
+  { q:"The development of full artificial intelligence could spell the end of the human race — or it could be the best thing we ever do.", a:"Stephen Hawking", cat:"ai" },
+  { q:"Machine intelligence is the last invention that humanity will ever need to make.", a:"Nick Bostrom, Oxford University", cat:"ai" },
+  { q:"AI will be the greatest opportunity for value creation in the history of business.", a:"Jensen Huang, CEO, NVIDIA", cat:"ai" },
+  { q:"The question is not whether machines can think. The question is whether we can govern the data they think with.", a:"Kai-Fu Lee, AI Investor & Author", cat:"ai" },
+  // ── Poor Data Kills AI ────────────────────────────────────────────────
+  { q:"Garbage in, garbage out. With AI, it's more like: garbage in, confidently wrong output at scale.", a:"Thomas C. Redman, 'Data Doctor'", cat:"dq-ai" },
+  { q:"Eighty percent of the work in any data project is just getting the data to the point where you can use it.", a:"DJ Patil, Former US Chief Data Scientist", cat:"dq-ai" },
+  { q:"An AI model is only as trustworthy as the data it was trained on. Bad data doesn't just hurt performance — it encodes bias permanently.", a:"Kate Crawford, AI Now Institute", cat:"dq-ai" },
+  { q:"Data quality is not a technology problem. It is a business problem with a technology symptom.", a:"Thomas C. Redman", cat:"dq-ai" },
+  { q:"The most dangerous phrase in the AI era is: 'the model said so.' Models inherit every flaw in the data they learned from.", a:"Cathy O'Neil, Author of Weapons of Math Destruction", cat:"dq-ai" },
+  { q:"You can't fix a bad data foundation with a better algorithm. The algorithm will just fail more efficiently.", a:"Monica Rogati, AI & Data Advisor", cat:"dq-ai" },
+  { q:"AI amplifies whatever is in the data — the insights and the errors equally.", a:"Hilary Mason, Data Scientist", cat:"dq-ai" },
+];
+const CAT_LABELS = { data:"📊 Data", ai:"🤖 AI", "dq-ai":"⚠️ Poor Data × AI" };
+const QuoteRotator = () => {
+  const [idx, setIdx] = React.useState(() => Math.floor(Math.random() * QUOTES.length));
+  const [fade, setFade] = React.useState(true);
+  React.useEffect(() => {
+    const t = setInterval(() => {
+      setFade(false);
+      setTimeout(() => { setIdx(i => (i + 1) % QUOTES.length); setFade(true); }, 400);
+    }, 6000);
+    return () => clearInterval(t);
+  }, []);
+  const q = QUOTES[idx];
+  const catColor = { data:"#0284C7", ai:"#6D28D9", "dq-ai":"#D97706" }[q.cat];
+  const catBg    = { data:"#E0F2FE", ai:"#F5F3FF", "dq-ai":"#FFFBEB" }[q.cat];
+  return (
+    <div style={{marginTop:16,background:"#FAFBFF",border:"1.5px solid #E2E8F0",
+      borderRadius:14,padding:"14px 18px",transition:"opacity .4s",opacity:fade?1:0,
+      minHeight:76,display:"flex",flexDirection:"column",justifyContent:"center"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
+        <span style={{fontSize:10,fontWeight:700,letterSpacing:1,
+          color:catColor,background:catBg,borderRadius:8,padding:"2px 9px"}}>
+          {CAT_LABELS[q.cat]}
+        </span>
+        <span style={{fontSize:9,color:"#CBD5E1"}}>{idx+1}/{QUOTES.length}</span>
+      </div>
+      <div style={{fontSize:12.5,color:"#1A3050",lineHeight:1.75,fontStyle:"italic",marginBottom:6}}>
+        "{q.q}"
+      </div>
+      <div style={{fontSize:11,fontWeight:700,color:catColor}}>— {q.a}</div>
+    </div>
+  );
+};
+
 // ─── LOCK SCREEN ──────────────────────────────────────────────────────────
 const Lock = ({onUnlock}) => {
   const [name,setName]   = useState("");
@@ -234,6 +410,7 @@ const Lock = ({onUnlock}) => {
   const [org,setOrg]     = useState("");
   const [key,setKey]     = useState("");
   const [loading,setLoading] = useState(false);
+  const [syncing,setSyncing] = useState(false);
   const [err,setErr]     = useState("");
 
   async function go() {
@@ -248,9 +425,18 @@ const Lock = ({onUnlock}) => {
         body: JSON.stringify({model:MH,max_tokens:5,messages:[{role:"user",content:"hi"}]}),
       });
       if (r.ok) {
-        const keyHint = "…" + key.trim().slice(-6);
-        trackLogin(name.trim(), email.trim(), org.trim(), keyHint);
-        onUnlock(key.trim(),name.trim(),email.trim(),org.trim());
+        const keyHint  = "…" + key.trim().slice(-6);
+        const em       = email.trim();
+        // Stamp name/org into localStorage so pushCloud can include them
+        if (em) LS.patch(em, d => ({ ...d, _name: name.trim(), _org: org.trim() }));
+        // Pull cloud session first — restores cross-device history before app loads
+        if (em) {
+          setSyncing(true);
+          await LS.pullCloud(em); // merges Sheets → localStorage silently
+          setSyncing(false);
+        }
+        trackLogin(name.trim(), em, org.trim(), keyHint);
+        onUnlock(key.trim(), name.trim(), em, org.trim());
       }
       else { const e=await r.json(); setErr(e.error?.message||"Invalid API key — check and retry."); }
     } catch { setErr("Network error. Check your connection."); }
@@ -356,49 +542,62 @@ const Lock = ({onUnlock}) => {
             fontFamily:"Bricolage Grotesque,sans-serif",cursor:loading?"not-allowed":"pointer",
             letterSpacing:".3px",boxShadow:loading?"none":"0 4px 20px rgba(2,132,199,.3)",
             transition:"all .2s"}}>
-          {loading ? "Verifying key…" : "Enter the Lab →"}
+          {syncing ? "☁️ Restoring your session…" : loading ? "Verifying key…" : "Enter the Lab →"}
         </button>
 
-        <div style={{marginTop:16,background:"#F0F9FF",border:"1.5px solid #BAE6FD",
-          borderRadius:12,padding:"12px 16px",fontSize:12,color:"#4A6FA5",lineHeight:1.8}}>
-          <span style={{fontWeight:700,color:"#0284C7"}}>💡 Cost:</span> Haiku for all learning ·
-          Sonnet only for Probe · <strong style={{color:"#059669"}}>~$0.33 total per student</strong>.
-          No Netlify needed — deployed free on GitHub Pages.
-        </div>
+        <QuoteRotator/>
       </div>
     </div>
   );
 };
 
 // ─── CHAT MODAL ───────────────────────────────────────────────────────────
-const ChatModal = ({apiKey, mod, mode, onClose}) => {
-  const [msgs,setMsgs]     = useState([]);
-  const [inp,setInp]       = useState("");
+const ChatModal = ({apiKey, mod, mode, onClose, userEmail}) => {
+  const histKey = `${mod.id}::${mode}`;
+  const stored  = LS.load(userEmail);
+  const initMsgs = stored.chatHistory?.[histKey] || [];
+
+  const [msgs,setMsgs]       = useState(initMsgs);
+  const [inp,setInp]         = useState("");
   const [loading,setLoading] = useState(false);
-  const [stream,setStream] = useState("");
-  const [err,setErr]       = useState("");
+  const [stream,setStream]   = useState("");
+  const [err,setErr]         = useState("");
   const bot = useRef(null);
 
   const cfgs = {
     tutor:  { icon:"🤖", label:"AI Tutor",        ph:`Ask anything about ${mod.label}…`, model:MH,
-      starter:`Hi! I'm ALCH 🤖 your tutor for **${mod.label}**. What would you like to understand? No question is too basic!`,
-      sys:`${BSYS}\nFocus: ${mod.label}. 3-5 punchy sentences unless depth requested. Always use an analogy.` },
+      starter:`Hi! I'm ALCH 🤖 your tutor for **${mod.label}**.\n\nWhat would you like to understand? No question is too basic — ask away!`,
+      sys:`${BSYS}\nFocus: ${mod.label}. Respond with proper structure when explaining concepts: use ## for section headings, **bold** for key terms, - bullet points for lists. Give thorough explanations with real-world analogies. Never give one-liner answers unless the question is simple.` },
     quiz:   { icon:"⚡", label:"Quiz Forge",       ph:"Type your answer…", model:MH, starter:null,
-      sys:`${BSYS}\nQUIZ MODE for ${mod.label}: ONE creative real-world scenario question (not MCQ). After answer explain WHY with flair. Offer another round.` },
+      sys:`${BSYS}\nQUIZ MODE for ${mod.label}: ONE creative real-world scenario question (not MCQ). After answer: use ## to structure feedback — **What You Got Right**, **What Was Missing**, **The Full Picture**. Always offer another round.` },
     explain:{ icon:"🎤", label:"Teach It Back",    ph:"Explain it in your own words…", model:MH,
-      starter:`Pick any concept from **${mod.label}** and explain it to me like teaching a colleague. Plain English — I'll grade you /10 🎤`,
-      sys:`${BSYS}\nEXPLAIN-BACK for ${mod.label}: Student explains. Grade /10. What was great, what was missed. Warm and brief.` },
+      starter:`Pick any concept from **${mod.label}** and explain it to me like teaching a colleague.\n\nPlain English is fine — I'll grade you **/10** and tell you exactly what landed and what didn't. 🎤`,
+      sys:`${BSYS}\nEXPLAIN-BACK for ${mod.label}: Student explains a concept. Grade /10. Use ## Score, ## What Landed, ## What Was Missing, ## The Part You Should Know. Be warm but precise.` },
     confess:{ icon:"🎪", label:"Confession Booth", ph:"What don't you actually understand?", model:MH,
-      starter:`Confession Booth 🎪 Zero judgment. Zero shame. What's really confusing you? Even the stuff you'd never ask in class.`,
-      sys:`${BSYS}\nCONFESSION BOOTH: No judgment. Simplest explanation + one great analogy. Check if it clicked. Celebrate honesty.` },
+      starter:`Confession Booth 🎪\n\nZero judgment. Zero shame.\n\nWhat's *really* confusing you about **${mod.label}**? Even the stuff you'd never ask in class — especially that.`,
+      sys:`${BSYS}\nCONFESSION BOOTH for ${mod.label}: No judgment ever. Structure the answer: ## The Simple Truth, ## Why It Confuses Everyone, ## The Analogy That Makes It Click, ## One Thing To Remember. Celebrate honesty loudly.` },
     socratic:{ icon:"🏛️", label:"Socratic Dialogue", ph:"Answer, or ask — the dialogue leads you there…", model:MH,
-      starter:`Welcome to Socratic Dialogue 🏛️\n\nI won't explain anything directly. Instead I'll ask you questions — one at a time — that guide you to the answer yourself.\n\nThat's the deal: I question, you think, you discover.\n\nLet's start with ${mod.label}. Tell me — what do you already think you know about it?`,
-      sys:`${BSYS}\nSOCRATIC MODE for ${mod.label}: You are a Socratic teacher. NEVER give direct answers or explanations. ONLY ask probing questions that lead the student to discover the concept themselves. One question at a time. If they answer well, acknowledge briefly then go deeper with another question. If they answer poorly or say "I don't know", ask a simpler question that breaks the problem down. If they ask you to just explain it, gently decline and reframe as a question instead. Your goal: the student arrives at the insight themselves. End each exchange with exactly one question. Be warm but relentless.` },
+      starter:`Welcome to Socratic Dialogue 🏛️\n\nI won't explain anything directly. Instead I'll ask you questions — one at a time — that guide you to the answer yourself.\n\nThat's the deal: I question, you think, you discover.\n\nLet's start with **${mod.label}**. Tell me — what do you already think you know about it?`,
+      sys:`${BSYS}\nSOCRATIC MODE for ${mod.label}: NEVER give direct answers or explanations. ONLY ask probing questions that lead the student to discover concepts themselves. One question at a time. If they answer well, acknowledge briefly then probe deeper. If stuck, simplify. If they ask you to explain directly, gently decline and reframe as a question. End every response with exactly one question. Be warm but relentless.` },
   };
   const cf = cfgs[mode] || cfgs.tutor;
   const c  = mod.hex;
 
-  useEffect(()=>{ if(cf.starter) setMsgs([{role:"assistant",content:cf.starter,id:Date.now()}]); else kick(); },[]);
+  // Persist chat history whenever msgs changes
+  useEffect(()=>{
+    if (msgs.length === 0) return;
+    LS.patch(userEmail, d => ({
+      ...d,
+      chatHistory: { ...(d.chatHistory||{}), [histKey]: msgs.slice(-60) } // keep last 60 msgs
+    }));
+  }, [msgs]);
+
+  useEffect(()=>{
+    if (initMsgs.length > 0) return; // restored — don't re-kick
+    if (cf.starter) setMsgs([{role:"assistant",content:cf.starter,id:Date.now()}]);
+    else kick();
+  },[]);
+
   useEffect(()=>{ bot.current?.scrollIntoView({behavior:"smooth"}); },[msgs,stream]);
 
   async function kick() {
@@ -415,14 +614,22 @@ const ChatModal = ({apiKey, mod, mode, onClose}) => {
       setStream(""); setMsgs(p=>[...p,{role:"assistant",content:o,id:Date.now()}]); }
     catch(e) { setErr(e.message); } setLoading(false);
   }
+  function clearHistory() {
+    LS.patch(userEmail, d => { const h={...(d.chatHistory||{})}; delete h[histKey]; return {...d,chatHistory:h}; });
+    setMsgs([]); setErr("");
+    if (cf.starter) setMsgs([{role:"assistant",content:cf.starter,id:Date.now()}]);
+    else kick();
+  }
+
+  const hasHistory = initMsgs.length > 0;
 
   return (
     <div style={{position:"fixed",inset:0,zIndex:1000,background:"rgba(8,20,42,.45)",
       display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(8px)"}}>
-      <div style={{width:"100%",maxWidth:700,background:"#fff",border:`1.5px solid ${c}33`,
+      <div style={{width:"100%",maxWidth:720,background:"#fff",border:`1.5px solid ${c}33`,
         borderRadius:26,display:"flex",flexDirection:"column",maxHeight:"90vh",
         boxShadow:`0 24px 60px ${c}20`}}>
-        <div style={{padding:"18px 22px",borderBottom:`1.5px solid ${c}18`,
+        <div style={{padding:"16px 20px",borderBottom:`1.5px solid ${c}18`,
           display:"flex",alignItems:"center",justifyContent:"space-between",
           background:`${c}08`,borderRadius:"24px 24px 0 0"}}>
           <div style={{display:"flex",alignItems:"center",gap:12}}>
@@ -431,34 +638,52 @@ const ChatModal = ({apiKey, mod, mode, onClose}) => {
               justifyContent:"center",fontSize:22}}>{mod.icon}</div>
             <div>
               <div className="dsp" style={{fontWeight:700,fontSize:17,color:c}}>{cf.label}</div>
-              <div style={{fontSize:11,color:"#7A9CC4"}}>{mod.icon} {mod.label} · ALCH · Haiku</div>
+              <div style={{fontSize:11,color:"#7A9CC4",display:"flex",alignItems:"center",gap:8}}>
+                {mod.icon} {mod.label} · ALCH · Haiku
+                {hasHistory && <span style={{background:c+"18",border:`1px solid ${c}44`,color:c,
+                  borderRadius:10,padding:"0px 7px",fontSize:10,fontWeight:700}}>
+                  💾 Session restored
+                </span>}
+              </div>
             </div>
           </div>
-          <button onClick={onClose} style={{background:"rgba(0,0,0,.05)",border:"1px solid #E2E8F0",
-            color:"#64748B",borderRadius:10,padding:"7px 14px",cursor:"pointer",fontSize:13,fontWeight:600}}>
-            ✕ Close
-          </button>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            {msgs.length > 1 && (
+              <button onClick={clearHistory}
+                style={{background:"#FFF8E7",border:"1.5px solid #FDE68A",color:"#92400E",
+                  borderRadius:10,padding:"6px 12px",cursor:"pointer",fontSize:11,fontWeight:600}}>
+                🗑️ Clear
+              </button>
+            )}
+            <button onClick={onClose} style={{background:"rgba(0,0,0,.05)",border:"1px solid #E2E8F0",
+              color:"#64748B",borderRadius:10,padding:"7px 14px",cursor:"pointer",fontSize:13,fontWeight:600}}>
+              ✕ Close
+            </button>
+          </div>
         </div>
 
         <div style={{flex:1,overflowY:"auto",padding:22,display:"flex",flexDirection:"column",gap:14}}>
           {msgs.map(m=>(
             <div key={m.id} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}>
-              <div style={{maxWidth:"82%",
-                background:m.role==="user"?`${c}12`:"#F4F9FF",
-                border:m.role==="user"?`1.5px solid ${c}44`:"1.5px solid #E2E8F0",
-                borderRadius:m.role==="user"?"18px 18px 4px 18px":"18px 18px 18px 4px",
-                padding:"12px 16px",fontSize:14,lineHeight:1.8,
-                color:m.role==="user"?c:"#1A3050",whiteSpace:"pre-wrap"}}>
-                {m.content}
-              </div>
+              {m.role==="user" ? (
+                <div style={{maxWidth:"78%",background:`${c}12`,border:`1.5px solid ${c}44`,
+                  borderRadius:"18px 18px 4px 18px",padding:"11px 15px",color:c,
+                  fontSize:14,fontWeight:500,lineHeight:1.7}}>
+                  {m.content}
+                </div>
+              ) : (
+                <div style={{maxWidth:"86%",background:"#F4F9FF",border:"1.5px solid #E2E8F0",
+                  borderRadius:"4px 18px 18px 18px",padding:"14px 18px"}}>
+                  <MD text={m.content} color="#1A3050"/>
+                </div>
+              )}
             </div>
           ))}
           {loading && (
             <div style={{display:"flex"}}>
               <div style={{background:"#F4F9FF",border:"1.5px solid #E2E8F0",
-                borderRadius:"18px 18px 18px 4px",padding:"12px 16px",fontSize:14,
-                color:"#1A3050",whiteSpace:"pre-wrap",maxWidth:"82%"}}>
-                {stream || <Dots c={c}/>}
+                borderRadius:"4px 18px 18px 18px",padding:"14px 18px",maxWidth:"86%"}}>
+                {stream ? <MD text={stream} color="#1A3050"/> : <Dots c={c}/>}
               </div>
             </div>
           )}
@@ -581,22 +806,25 @@ const ProbeSession = ({apiKey, onClose}) => {
             <div style={{flex:1,overflowY:"auto",padding:22,display:"flex",flexDirection:"column",gap:14}}>
               {chat.map(m=>(
                 <div key={m.id} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}>
-                  <div style={{maxWidth:"84%",
-                    background:m.role==="user"?"#FFF1F2":"#F4F9FF",
-                    border:m.role==="user"?"1.5px solid #FECDD3":"1.5px solid #E2E8F0",
-                    borderRadius:m.role==="user"?"18px 18px 4px 18px":"18px 18px 18px 4px",
-                    padding:"12px 16px",fontSize:14,lineHeight:1.8,
-                    color:m.role==="user"?"#BE123C":"#1A3050",whiteSpace:"pre-wrap"}}>
-                    {m.content}
-                  </div>
+                  {m.role==="user" ? (
+                    <div style={{maxWidth:"78%",background:"#FFF1F2",border:"1.5px solid #FECDD3",
+                      borderRadius:"18px 18px 4px 18px",padding:"11px 15px",fontSize:14,
+                      color:"#BE123C",lineHeight:1.7}}>
+                      {m.content}
+                    </div>
+                  ) : (
+                    <div style={{maxWidth:"86%",background:"#F4F9FF",border:"1.5px solid #E2E8F0",
+                      borderRadius:"4px 18px 18px 18px",padding:"14px 18px"}}>
+                      <MD text={m.content} color="#1A3050"/>
+                    </div>
+                  )}
                 </div>
               ))}
               {loading && (
                 <div style={{display:"flex"}}>
                   <div style={{background:"#F4F9FF",border:"1.5px solid #E2E8F0",
-                    borderRadius:"18px 18px 18px 4px",padding:"12px 16px",fontSize:14,
-                    color:"#1A3050",whiteSpace:"pre-wrap",maxWidth:"84%"}}>
-                    {stream || <Dots c="#E11D48"/>}
+                    borderRadius:"4px 18px 18px 18px",padding:"14px 18px",maxWidth:"86%"}}>
+                    {stream ? <MD text={stream} color="#1A3050"/> : <Dots c="#E11D48"/>}
                   </div>
                 </div>
               )}
@@ -1099,22 +1327,56 @@ const DiagramPanel = ({id, hex, light}) => {
   return null;
 };
 
-const ModCard = ({apiKey, mod, onChat}) => {
+const ModCard = ({apiKey, mod, onChat, userEmail}) => {
   const [open,setOpen]   = useState(false);
   const [topic,setTopic] = useState(null);
-  const [tdata,setTdata] = useState({});
+  const [depth,setDepth] = useState("quick"); // "quick" | "deep"
   const [ltopic,setLtopic] = useState(null);
   const c = mod.hex;
 
+  // Load topic cache from localStorage on mount
+  const [tdata,setTdata] = useState(()=>{
+    const stored = LS.load(userEmail);
+    return stored.topicCache?.[mod.id] || {};
+  });
+
+  // Save topic cache whenever it changes
+  useEffect(()=>{
+    if (Object.keys(tdata).length === 0) return;
+    LS.patch(userEmail, d => ({
+      ...d,
+      topicCache: { ...(d.topicCache||{}), [mod.id]: tdata }
+    }));
+  }, [tdata]);
+
+  const depthKey = (t) => `${t}::${depth}`;
+
   async function explain(t) {
-    if (tdata[t]) { setTopic(t); return; }
+    const k = depthKey(t);
+    if (tdata[k]) { setTopic(t); return; }
     setLtopic(t); setTopic(t);
+    const prompt = depth === "quick"
+      ? `Explain "${t}" in context of ${mod.label}: 4-5 punchy sentences, one real-world analogy, one thing students always get wrong. Engaging tone.`
+      : `Give a thorough explanation of "${t}" in context of ${mod.label}. Structure your response with:
+## What Is It?
+Clear definition in plain English.
+## Why It Matters
+Why practitioners actually care about this in the real world.
+## How It Works
+The mechanism — steps, rules, or logic involved.
+## Real-World Example
+A concrete scenario (preferably enterprise data context).
+## Common Mistakes
+2-3 things people get wrong about this concept.
+## How It Connects
+How this links to other parts of ${mod.label} or the broader data journey.
+Be thorough but sharp — no filler, no waffle.`;
     try {
       let o = "";
-      await callAI(apiKey,MH,
-        [{role:"user",content:`Explain "${t}" in context of ${mod.label}: 4-5 punchy sentences, one real-world analogy, one thing students always get wrong. Engaging tone.`}],
-        BSYS, tt=>{ o=tt; setTdata(p=>({...p,[t]:tt})); });
-    } catch { setTdata(p=>({...p,[t]:"⚠️ Error — check API key."})); }
+      await callAI(apiKey, MH,
+        [{role:"user",content:prompt}],
+        BSYS, tt=>{ o=tt; setTdata(p=>({...p,[k]:tt})); });
+    } catch { setTdata(p=>({...p,[k]:"⚠️ Error — check API key."})); }
     setLtopic(null);
   }
 
@@ -1190,8 +1452,21 @@ const ModCard = ({apiKey, mod, onChat}) => {
           )}
 
           <div style={{padding:"0 26px 26px"}}>
-            <div style={{fontSize:10,color:"#7A9CC4",letterSpacing:2,marginBottom:14,fontWeight:700}}>
-              🔬 DEEP DIVE TOPICS — click any for live AI explanation
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+              marginBottom:14,flexWrap:"wrap",gap:10}}>
+              <div style={{fontSize:10,color:"#7A9CC4",letterSpacing:2,fontWeight:700}}>
+                🔬 DEEP DIVE TOPICS — click any for live AI explanation
+              </div>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <span style={{fontSize:10,color:"#94A3B8",fontWeight:600,letterSpacing:1}}>DEPTH</span>
+                {[{id:"quick",l:"⚡ Quick",desc:"4-5 sentences + analogy"},{id:"deep",l:"📖 Deep",desc:"Full structured breakdown"}].map(d=>(
+                  <button key={d.id} onClick={()=>{setDepth(d.id);setTopic(null);}}
+                    title={d.desc}
+                    style={{background:depth===d.id?c+"20":"#fff",border:`1.5px solid ${depth===d.id?c:"#D9E8F7"}`,
+                      color:depth===d.id?c:"#94A3B8",borderRadius:16,padding:"4px 14px",fontSize:11,
+                      fontWeight:700,cursor:"pointer",transition:"all .15s"}}>{d.l}</button>
+                ))}
+              </div>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:8}}>
               {mod.topics.map(t=>(
@@ -1201,25 +1476,46 @@ const ModCard = ({apiKey, mod, onChat}) => {
                     borderRadius:12,padding:"10px 14px",
                     color:topic===t?c:"#4A6FA5",fontSize:13,
                     fontWeight:topic===t?700:500,cursor:"pointer",
-                    textAlign:"left",transition:"all .15s"}}>
+                    textAlign:"left",transition:"all .15s",
+                    position:"relative"}}>
                   {ltopic===t ? "⏳ Loading…" : t+" →"}
+                  {tdata[depthKey(t)] && <span style={{position:"absolute",top:4,right:6,
+                    fontSize:9,color:c+"88"}}>✓</span>}
                 </button>
               ))}
             </div>
             {topic && (
               <div style={{marginTop:18,background:mod.light,border:`1.5px solid ${c}44`,
                 borderRadius:16,padding:20,animation:"shimIn .3s ease"}}>
-                <div className="dsp" style={{fontSize:13,fontWeight:800,color:c,marginBottom:10}}>
-                  {mod.icon} {topic}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                  <div className="dsp" style={{fontSize:14,fontWeight:800,color:c}}>
+                    {mod.icon} {topic}
+                  </div>
+                  <span style={{fontSize:10,background:c+"18",border:`1px solid ${c}33`,color:c,
+                    borderRadius:10,padding:"2px 9px",fontWeight:700}}>
+                    {depth==="quick"?"⚡ Quick":"📖 Deep"}
+                  </span>
                 </div>
-                <div style={{fontSize:14,color:"#1A3050",lineHeight:1.9,whiteSpace:"pre-wrap"}}>
-                  {tdata[topic] || <Dots c={c}/>}
+                <div style={{background:"#fff",borderRadius:12,padding:"14px 16px",
+                  border:`1px solid ${c}22`}}>
+                  {tdata[depthKey(topic)]
+                    ? <MD text={tdata[depthKey(topic)]} color="#1A3050"/>
+                    : <Dots c={c}/>}
                 </div>
-                <button onClick={()=>onChat(mod,"tutor")}
-                  style={{marginTop:14,background:`${c}12`,border:`1.5px solid ${c}44`,color:c,
-                    borderRadius:10,padding:"8px 16px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
-                  💬 Ask ALCH more →
-                </button>
+                <div style={{display:"flex",gap:10,marginTop:12,flexWrap:"wrap"}}>
+                  <button onClick={()=>onChat(mod,"tutor")}
+                    style={{background:`${c}12`,border:`1.5px solid ${c}44`,color:c,
+                      borderRadius:10,padding:"8px 16px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                    💬 Ask ALCH more →
+                  </button>
+                  {depth==="quick" && tdata[depthKey(topic)] && (
+                    <button onClick={()=>{setDepth("deep");explain(topic);}}
+                      style={{background:"#fff",border:"1.5px solid #D9E8F7",color:"#4A6FA5",
+                        borderRadius:10,padding:"8px 16px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                      📖 Go deeper →
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -1230,13 +1526,17 @@ const ModCard = ({apiKey, mod, onChat}) => {
 };
 
 // ─── JOURNEY MAP ──────────────────────────────────────────────────────────
-const JMap = ({onClick}) => (
+const JMap = ({onClick}) => {
+  const [showRI, setShowRI] = React.useState(false);
+  return (
   <div style={{background:"#fff",border:"1.5px solid #D9E8F7",borderRadius:22,
-    padding:"26px 24px",marginBottom:28}}>
+    padding:"26px 24px 20px",marginBottom:28,overflow:"hidden"}}>
     <div style={{fontSize:10,color:"#7A9CC4",letterSpacing:3,marginBottom:22,
       textAlign:"center",fontWeight:700}}>
-      THE DATA MANAGEMENT JOURNEY · SEASON 5 STARTS HERE →
+      THE DATA MANAGEMENT JOURNEY · 7 MODULES + REVERSE INTEGRATION
     </div>
+
+    {/* Forward flow */}
     <div style={{display:"flex",alignItems:"center",justifyContent:"center",
       flexWrap:"wrap",gap:0,rowGap:12}}>
       {JOURNEY.map((s,i)=>{
@@ -1245,10 +1545,10 @@ const JMap = ({onClick}) => (
           <div key={s.id} style={{display:"flex",alignItems:"center"}}>
             <div onClick={()=>mod&&onClick(s.id)}
               style={{display:"flex",flexDirection:"column",alignItems:"center",
-                padding:"14px 20px",borderRadius:16,
+                padding:"12px 16px",borderRadius:16,
                 background:s.done?"#F1F5F9":s.active?`${c}12`:"#F4F9FF",
                 border:s.done?"1.5px solid #CBD5E1":s.active?`2px solid ${c}`:"1.5px solid #D9E8F7",
-                cursor:mod?"pointer":"default",position:"relative",minWidth:92,transition:"all .15s"}}>
+                cursor:mod?"pointer":"default",position:"relative",minWidth:82,transition:"all .15s"}}>
               {s.done && (
                 <div style={{position:"absolute",top:-8,right:-8,background:"#10B981",
                   borderRadius:"50%",width:22,height:22,display:"flex",alignItems:"center",
@@ -1259,20 +1559,78 @@ const JMap = ({onClick}) => (
                   width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",
                   fontSize:10,color:"#fff",fontWeight:700,animation:"pingDot 1.5s ease-in-out infinite"}}>▶</div>
               )}
-              <div style={{fontSize:26,marginBottom:6}}>{s.icon}</div>
-              <div className={s.active?"dsp":""} style={{fontSize:10,textAlign:"center",
+              <div style={{fontSize:24,marginBottom:5}}>{s.icon}</div>
+              <div className={s.active?"dsp":""} style={{fontSize:9.5,textAlign:"center",
                 color:s.done?"#94A3B8":s.active?c:"#7A9CC4",
                 fontWeight:s.active?800:500,lineHeight:1.3}}>{s.label}</div>
             </div>
             {i<JOURNEY.length-1 && (
-              <div style={{width:32,height:2,background:s.done?"#CBD5E1":"#D9E8F7",margin:"0 2px"}}/>
+              <div style={{width:24,height:2,background:s.done?"#CBD5E1":"#D9E8F7",margin:"0 1px"}}/>
             )}
           </div>
         );
       })}
     </div>
+
+    {/* Reverse Integration arc */}
+    <div style={{marginTop:14,display:"flex",flexDirection:"column",alignItems:"center",gap:0}}>
+      {/* Curved return line using SVG */}
+      <svg width="100%" height="44" style={{maxWidth:760,display:"block",overflow:"visible"}}>
+        <defs>
+          <marker id="arrowRI" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#059669"/>
+          </marker>
+        </defs>
+        {/* Curved path from right (Publication/AI side) back to left (Source Systems) */}
+        <path d="M 88% 8 Q 50% 44 12% 8"
+          fill="none" stroke="#05966944" strokeWidth="2"
+          strokeDasharray="6 4" markerEnd="url(#arrowRI)"
+          style={{animation:"dashFlow 4s linear infinite"}}/>
+        <text x="50%" y="38" textAnchor="middle" fontSize="9.5" fontWeight="700"
+          fill="#059669" fontFamily="Plus Jakarta Sans,sans-serif">
+          ↩ Reverse Integration — Golden Record & Mastered Data written back to Source Systems
+        </text>
+      </svg>
+
+      {/* Expandable RI info */}
+      <button onClick={()=>setShowRI(!showRI)}
+        style={{background:showRI?"#ECFDF5":"#fff",border:`1.5px solid ${showRI?"#059669":"#A7F3D0"}`,
+          color:"#059669",borderRadius:20,padding:"4px 16px",fontSize:11,fontWeight:700,
+          cursor:"pointer",marginTop:2,transition:"all .2s"}}>
+        {showRI?"▲ Hide":"▼ What is Reverse Integration?"}
+      </button>
+
+      {showRI && (
+        <div style={{marginTop:12,background:"#ECFDF5",border:"1.5px solid #A7F3D0",
+          borderRadius:16,padding:"16px 20px",maxWidth:680,width:"100%",
+          animation:"shimIn .25s ease"}}>
+          <div style={{fontFamily:"Bricolage Grotesque,sans-serif",fontWeight:800,
+            fontSize:14,color:"#059669",marginBottom:8}}>↩ Reverse Integration</div>
+          <div style={{fontSize:13,color:"#1A3050",lineHeight:1.85}}>
+            Data doesn't only flow forward. Once mastered, governed, and trusted — it flows <strong>back</strong> into the source systems that need it.
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",
+            gap:10,marginTop:12}}>
+            {[
+              {icon:"🏆",title:"Golden Record Writeback",desc:"MDM pushes the single trusted customer or product record back into CRM, ERP, and operational systems."},
+              {icon:"🏷️",title:"Enriched Attributes",desc:"Cleansed addresses, standardised names, validated DOBs — returned to the systems that originally had dirty data."},
+              {icon:"🔗",title:"Cross-Reference Sync",desc:"Xref tables keep source system IDs aligned — every system knows the same entity by its own local ID."},
+              {icon:"🤖",title:"AI-Driven Corrections",desc:"AI models detect anomalies and push corrections back upstream before bad data spreads further."},
+            ].map(r=>(
+              <div key={r.title} style={{background:"#fff",borderRadius:12,padding:"12px 14px",
+                border:"1.5px solid #A7F3D0"}}>
+                <div style={{fontSize:18,marginBottom:4}}>{r.icon}</div>
+                <div style={{fontSize:12,fontWeight:700,color:"#059669",marginBottom:4}}>{r.title}</div>
+                <div style={{fontSize:12,color:"#4A6FA5",lineHeight:1.6}}>{r.desc}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   </div>
-);
+  );
+};
 
 // ─── SCHEDULE ─────────────────────────────────────────────────────────────
 const Schedule = () => {
@@ -1538,7 +1896,7 @@ const App = () => {
             {MODS.map(m=>(
               <div key={m.id} style={{outline:hl===m.id?`3px solid ${m.hex}`:"none",
                 borderRadius:24,transition:"outline .3s"}}>
-                <ModCard apiKey={key} mod={m} onChat={(m,mode)=>setChat({mod:m,mode})}/>
+                <ModCard apiKey={key} mod={m} onChat={(m,mode)=>setChat({mod:m,mode})} userEmail={email}/>
               </div>
             ))}
           </div>
@@ -1596,7 +1954,7 @@ const App = () => {
         </div>
       </footer>
 
-      {chat  && <ChatModal apiKey={key} mod={chat.mod} mode={chat.mode} onClose={()=>setChat(null)}/>}
+      {chat  && <ChatModal apiKey={key} mod={chat.mod} mode={chat.mode} onClose={()=>setChat(null)} userEmail={email}/>}
       {probe && <ProbeSession apiKey={key} onClose={()=>setProbe(false)}/>}
       <QAsk apiKey={key}/>
     </div>
