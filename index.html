@@ -291,10 +291,10 @@ const DataBg = () => {
   const cards = [
     {x:4,  y:9,  icon:"🗄️", label:"Source Systems",  color:"#34D399", delay:"0s"},
     {x:83, y:5,  icon:"⚙️",  label:"ETL / ELT",       color:"#22D3EE", delay:".9s"},
-    {x:91, y:63, icon:"🔬",  label:"Data Quality",     color:"#60A5FA", delay:"1.7s"},
-    {x:45, y:88, icon:"🏆",  label:"MDM",              color:"#FBBF24", delay:"2.5s"},
-    {x:2,  y:70, icon:"📡",  label:"Publication",      color:"#FB7185", delay:"1.3s"},
-    {x:36, y:2,  icon:"⚖️",  label:"Governance",       color:"#C084FC", delay:".5s"},
+    {x:91, y:63, icon:"🔬",  label:"Data Quality",    color:"#60A5FA", delay:"1.7s"},
+    {x:45, y:88, icon:"🏆",  label:"MDM",             color:"#FBBF24", delay:"2.5s"},
+    {x:2,  y:70, icon:"📡",  label:"Publication",     color:"#FB7185", delay:"1.3s"},
+    {x:36, y:2,  icon:"⚖️",  label:"Governance",      color:"#C084FC", delay:".5s"},
     {x:68, y:44, icon:"🤖",  label:"AI-Native Future", color:"#E879F9", delay:"2.1s"},
   ];
   const stars = Array.from({length:35},(_,i)=>({
@@ -1551,72 +1551,76 @@ const MDMDiagram = ({hex}) => {
       }
     };
 
+    window.mdmScenarios = [
+      {
+        title: "🎯 Targeted Retention",
+        desc: "Competitor mall opening 2km away detected. Multi-domain query mapped Tariq's physical footprint (Grand Plaza Mall) to his product preferences (Espresso).",
+        action: "Action: Automated 20% Espresso discount sent to Tariq for Grand Plaza Mall.",
+        nodes: ['gn-cust', 'gn-loc', 'gn-prod'],
+        lines: ['svg-line-cl', 'svg-line-cp', 'svg-line-lp']
+      },
+      {
+        title: "⚠️ Supply Chain Reroute",
+        desc: "Primary supplier for 'Espresso Machines' reports a delay. Graph identifies Grand Plaza inventory is critical and cross-references a secondary supplier.",
+        action: "Action: Automated PO generation to Secondary Supplier to reroute inventory to Grand Plaza.",
+        nodes: ['gn-sup', 'gn-loc', 'gn-prod'],
+        lines: ['svg-line-lp', 'svg-line-ps', 'svg-line-ls']
+      },
+      {
+        title: "🛡️ Omnichannel Fraud",
+        desc: "Tariq's loyalty account was used physically at Grand Plaza, while a simultaneous online purchase attempt was flagged from a foreign IP.",
+        action: "Action: Freeze point redemption and trigger SMS identity verification.",
+        nodes: ['gn-cust', 'gn-loc', 'gn-int'],
+        lines: ['svg-line-cl', 'svg-line-ci', 'svg-line-li']
+      }
+    ];
+    window.currentScenarioIndex = 0;
+    window.scenarioInterval = null;
     window.scenarioRunning = false;
-    window.scenarioDone = false;
 
     window.handleScenarioBtn = function() {
-      if(window.scenarioRunning) return;
-      if(window.scenarioDone) {
-        window.resetGraphScenario();
+      const btn = document.getElementById('btn-run-scenario');
+      if(window.scenarioRunning) {
+         clearInterval(window.scenarioInterval);
+         window.scenarioRunning = false;
+         btn.innerHTML = "▶ Play Multi-Domain Scenarios";
+         window.resetGraphScenario();
       } else {
-        window.runGraphScenario();
+         window.scenarioRunning = true;
+         btn.innerHTML = "⏸ Stop Scenarios";
+         window.playNextScenario();
+         window.scenarioInterval = setInterval(window.playNextScenario, 5000);
       }
     };
 
-    window.runGraphScenario = function() {
-      window.scenarioRunning = true;
-      const btn = document.getElementById('btn-run-scenario');
-      btn.innerHTML = "⏳ Querying Enterprise Graph...";
-      btn.style.opacity = '0.7';
-
-      // Step 1: Customer -> Location
+    window.playNextScenario = function() {
+      const s = window.mdmScenarios[window.currentScenarioIndex];
+      const card = document.getElementById('scenario-card');
+      card.style.opacity = 0;
+      
       setTimeout(() => {
-        document.getElementById('svg-line-cl').classList.add('active');
-        document.getElementById('gn-loc').classList.add('glow-loc');
-        document.getElementById('lbl-cl').style.opacity = '1';
-      }, 600);
-
-      // Step 2: Customer -> Product
-      setTimeout(() => {
-        document.getElementById('svg-line-cp').classList.add('active');
-        document.getElementById('gn-prod').classList.add('glow-prod');
-        document.getElementById('lbl-cp').style.opacity = '1';
-      }, 1600);
-
-      // Step 3: Location -> Product
-      setTimeout(() => {
-        document.getElementById('svg-line-lp').classList.add('active');
-        document.getElementById('lbl-lp').style.opacity = '1';
-      }, 2600);
-
-      // Step 4: Insight Overlay
-      setTimeout(() => {
-        document.getElementById('mdm-insight').style.opacity = '1';
-        document.getElementById('mdm-insight').style.transform = 'translateY(0) scale(1)';
-        btn.innerHTML = "↺ Reset Scenario";
-        btn.style.opacity = '1';
-        window.scenarioRunning = false;
-        window.scenarioDone = true;
-      }, 3800);
+        document.getElementById('scenario-title').innerText = s.title;
+        document.getElementById('scenario-description').innerText = s.desc;
+        const act = document.getElementById('scenario-action');
+        act.innerText = s.action;
+        act.style.display = 'block';
+        
+        document.querySelectorAll('.g-node, .svg-path').forEach(el => el.classList.remove('active'));
+        
+        s.nodes.forEach(id => document.getElementById(id)?.classList.add('active'));
+        s.lines.forEach(id => document.getElementById(id)?.classList.add('active'));
+        
+        card.style.opacity = 1;
+        window.currentScenarioIndex = (window.currentScenarioIndex + 1) % window.mdmScenarios.length;
+      }, 300);
     };
 
     window.resetGraphScenario = function() {
-      window.scenarioDone = false;
-      document.getElementById('btn-run-scenario').innerHTML = "▶ Run Retention Scenario";
-      
-      document.getElementById('svg-line-cl').classList.remove('active');
-      document.getElementById('svg-line-cp').classList.remove('active');
-      document.getElementById('svg-line-lp').classList.remove('active');
-      
-      document.getElementById('gn-loc').classList.remove('glow-loc');
-      document.getElementById('gn-prod').classList.remove('glow-prod');
-
-      document.getElementById('lbl-cl').style.opacity = '0';
-      document.getElementById('lbl-cp').style.opacity = '0';
-      document.getElementById('lbl-lp').style.opacity = '0';
-
-      document.getElementById('mdm-insight').style.opacity = '0';
-      document.getElementById('mdm-insight').style.transform = 'translateY(20px) scale(0.95)';
+      document.querySelectorAll('.g-node, .svg-path').forEach(el => el.classList.remove('active'));
+      document.getElementById('scenario-title').innerText = 'Initialize Engine';
+      document.getElementById('scenario-description').innerText = 'System idle. Awaiting cross-domain query trigger.';
+      document.getElementById('scenario-action').style.display = 'none';
+      window.currentScenarioIndex = 0;
     };
 
     window.runKeyAnim = function(type) {
@@ -1675,8 +1679,8 @@ const MDMDiagram = ({hex}) => {
       delete window.runGraphScenario; delete window.resetGraphScenario; delete window.handleScenarioBtn;
       delete window.runKeyAnim; delete window.resetKeyAnim; delete window.HIER_DATA;
       delete window.TRUST_SOURCES; delete window.GOLDEN_FIELDS; delete window.animRunning;
-      delete window.scenarioRunning; delete window.scenarioDone;
-      delete window.currentHier;
+      delete window.scenarioRunning; delete window.currentScenarioIndex; delete window.scenarioInterval;
+      delete window.playNextScenario; delete window.currentHier; delete window.mdmScenarios;
     };
   }, []);
 
@@ -1729,7 +1733,6 @@ const MDMDiagram = ({hex}) => {
         .mdm-mode-btn {background:transparent; border:none; border-radius:24px; padding:8px 20px; font-size:13px; font-weight:700; color:#64748b; cursor:pointer; transition:all .2s;}
         .mdm-mode-btn.active {background:#7C3AED; color:#fff; box-shadow:0 4px 12px rgba(124,58,237,.3);}
         
-        /* NEW DARK GRAPH CSS */
         .silo-grid {display:grid; grid-template-columns:repeat(3, 1fr); gap:20px; margin-bottom:24px;}
         @media(max-width:700px){.silo-grid {grid-template-columns:1fr;}}
         .md-silo {background:#fff; border:2px solid #e2e8f0; border-radius:16px; padding:20px; text-align:center; position:relative;}
@@ -1740,23 +1743,24 @@ const MDMDiagram = ({hex}) => {
         .mdm-q-box {background:#fff; border:1.5px solid #e2e8f0; border-radius:16px; padding:24px; text-align:center;}
         .mdm-q-text {font-family:'Bricolage Grotesque',sans-serif; font-size:18px; font-weight:700; color:#1e293b; margin-bottom:16px;}
         
-        .multi-graph-stage {background:#0f172a; border-radius:20px; height:380px; position:relative; overflow:hidden; margin-bottom:24px; border:1px solid #334155; box-shadow:inset 0 0 60px rgba(0,0,0,.5)}
+        /* UPDATED MULTI-DOMAIN GRAPH CSS */
+        .mdm-multi-layout {display:flex; flex-direction:row; gap:24px; margin-bottom:24px; height:460px;}
+        @media(max-width:900px){.mdm-multi-layout{flex-direction:column; height:auto;}}
+        .multi-graph-stage {flex:7; background:#0f172a; border-radius:20px; position:relative; overflow:hidden; border:1px solid #334155; box-shadow:inset 0 0 60px rgba(0,0,0,.5); min-height: 400px;}
+        .multi-panel-stage {flex:3; background:#fff; border:2px solid #e2e8f0; border-radius:20px; padding:24px; display:flex; flex-direction:column; justify-content:center; border-left:4px solid #10b981; transition:all 0.3s ease;}
+        .multi-panel-card {transition: opacity 0.3s ease;}
+        .scenario-title {font-family:'Bricolage Grotesque',sans-serif; font-size:18px; font-weight:800; color:#0f172a; margin-bottom:12px;}
+        .scenario-desc {font-size:13px; color:#475569; line-height:1.6; margin-bottom:16px;}
+        .scenario-act {background:#ecfdf5; border-left:4px solid #10b981; padding:12px; color:#065f46; font-size:12px; font-weight:700; border-radius:4px;}
+        
         .graph-svg-layer {position:absolute; inset:0; width:100%; height:100%; z-index:1;}
-        .svg-path {fill:none; stroke:#334155; stroke-width:3; stroke-dasharray:6 8;}
-        .svg-path.active {stroke:var(--pc); animation:streamData 1s linear infinite; filter:drop-shadow(0 0 6px var(--pc))}
+        .svg-path {fill:none; stroke:#334155; stroke-width:3; stroke-dasharray:6 8; transition:all 0.4s ease;}
+        .svg-path.active {stroke:var(--pc); stroke-dasharray:none; animation:streamData 1s linear infinite; filter:drop-shadow(0 0 6px var(--pc))}
         @keyframes streamData { to { stroke-dashoffset: -14; } }
         
-        .g-node {position:absolute; background:rgba(30,41,59,.8); border:2px solid; border-radius:14px; padding:12px 18px; color:#fff; font-size:13px; font-weight:700; display:flex; flex-direction:column; align-items:center; gap:4px; z-index:2; backdrop-filter:blur(8px); transition:all .4s; box-shadow:0 8px 32px rgba(0,0,0,.4)}
+        .g-node {position:absolute; background:rgba(30,41,59,.8); border:2px solid; border-radius:14px; padding:12px 18px; color:#fff; font-size:13px; font-weight:700; display:flex; flex-direction:column; align-items:center; gap:4px; z-index:2; backdrop-filter:blur(8px); transition:all .4s ease; box-shadow:0 8px 32px rgba(0,0,0,.4)}
         .g-node span {font-size:10px; color:#94a3b8; font-weight:600; letter-spacing:1px; text-transform:uppercase}
-        .g-node.glow-loc {box-shadow:0 0 30px rgba(217,119,6,.4); border-color:#D97706; transform:scale(1.05)}
-        .g-node.glow-prod {box-shadow:0 0 30px rgba(5,150,105,.4); border-color:#059669; transform:scale(1.05)}
-        
-        .g-label {position:absolute; background:#1e293b; color:#cbd5e1; border:1px solid #334155; padding:4px 10px; border-radius:20px; font-size:10px; font-weight:700; z-index:3; opacity:0; transition:opacity .4s ease; text-align:center;}
-        .g-label span {display:block; color:#fff;}
-
-        .insight-overlay {position:absolute; bottom:20px; left:50%; transform:translateX(-50%) translateY(20px) scale(0.95); width:90%; max-width:600px; background:rgba(255,255,255,.95); backdrop-filter:blur(12px); border-radius:16px; padding:20px; z-index:10; border:2px solid #10B981; box-shadow:0 20px 50px rgba(0,0,0,.5); opacity:0; transition:all .5s cubic-bezier(0.175, 0.885, 0.32, 1.275); pointer-events:none;}
-        .insight-overlay h4 {margin:0 0 8px 0; color:#065F46; font-size:15px; display:flex; align-items:center; gap:8px;}
-        .insight-overlay p {margin:0; font-size:13px; color:#334155; line-height:1.6;}
+        .g-node.active {transform:translate(-50%,-50%) scale(1.1) !important; box-shadow:0 0 25px currentColor; border-color:currentColor; z-index:10;}
         
         .btn-scenario {background:linear-gradient(135deg,#2563EB,#7C3AED); color:#fff; border:none; border-radius:12px; padding:12px 24px; font-size:14px; font-weight:700; cursor:pointer; display:block; margin:0 auto; transition:all .2s; box-shadow:0 4px 16px rgba(37,99,235,.3)}
         .btn-scenario:hover {transform:translateY(-2px); box-shadow:0 6px 20px rgba(37,99,235,.4)}
@@ -1872,50 +1876,54 @@ const MDMDiagram = ({hex}) => {
           </div>
 
           <div id="mdm-multi" style="display:none;">
-            <div class="multi-graph-stage">
-              <svg class="graph-svg-layer">
-                <line id="svg-line-cl" x1="50%" y1="20%" x2="25%" y2="70%" class="svg-path" style="--pc:#D97706" />
-                <line id="svg-line-cp" x1="50%" y1="20%" x2="75%" y2="70%" class="svg-path" style="--pc:#059669" />
-                <line id="svg-line-lp" x1="25%" y1="70%" x2="75%" y2="70%" class="svg-path" style="--pc:#94a3b8" />
-              </svg>
+            <div class="mdm-multi-layout">
+              <div class="multi-graph-stage">
+                <svg class="graph-svg-layer">
+                  <line id="svg-line-cl" x1="40%" y1="20%" x2="20%" y2="70%" class="svg-path" style="--pc:#D97706" />
+                  <line id="svg-line-cp" x1="40%" y1="20%" x2="60%" y2="70%" class="svg-path" style="--pc:#059669" />
+                  <line id="svg-line-ci" x1="40%" y1="20%" x2="80%" y2="20%" class="svg-path" style="--pc:#6D28D9" />
+                  <line id="svg-line-lp" x1="20%" y1="70%" x2="60%" y2="70%" class="svg-path" style="--pc:#94a3b8" />
+                  <line id="svg-line-ls" x1="20%" y1="70%" x2="90%" y2="70%" class="svg-path" style="--pc:#0891B2" />
+                  <line id="svg-line-ps" x1="60%" y1="70%" x2="90%" y2="70%" class="svg-path" style="--pc:#E11D48" />
+                  <line id="svg-line-li" x1="20%" y1="70%" x2="80%" y2="20%" class="svg-path" style="--pc:#2563EB" />
+                </svg>
 
-              <div class="g-node" style="top:10%; left:50%; transform:translateX(-50%); border-color:#2563EB;">
-                <span style="color:#60A5FA">Customer Domain</span>
-                <div style="display:flex;align-items:center;gap:6px;font-size:16px">👤 Tariq Mansour</div>
+                <div class="g-node" id="gn-cust" style="top:20%; left:40%; transform:translate(-50%, -50%); border-color:#2563EB; color:#60A5FA;">
+                  <span>Customer</span>
+                  <div style="display:flex;align-items:center;gap:6px;font-size:15px;color:#fff">👤 Tariq Mansour</div>
+                </div>
+
+                <div class="g-node" id="gn-loc" style="top:70%; left:20%; transform:translate(-50%, -50%); border-color:#FBBF24; color:#FBBF24;">
+                  <span>Location</span>
+                  <div style="display:flex;align-items:center;gap:6px;font-size:13px;color:#fff">🏪 Grand Plaza Mall</div>
+                </div>
+
+                <div class="g-node" id="gn-prod" style="top:70%; left:60%; transform:translate(-50%, -50%); border-color:#34D399; color:#34D399;">
+                  <span>Product</span>
+                  <div style="display:flex;align-items:center;gap:6px;font-size:13px;color:#fff">☕ Glitchara Espresso</div>
+                </div>
+                
+                <div class="g-node" id="gn-sup" style="top:70%; left:90%; transform:translate(-50%,-50%); border-color:#E11D48; color:#FB7185;">
+                  <span>Supplier</span>
+                  <div style="display:flex;align-items:center;gap:6px;font-size:13px;color:#fff">🚚 Vendor Net</div>
+                </div>
+                
+                <div class="g-node" id="gn-int" style="top:20%; left:80%; transform:translate(-50%,-50%); border-color:#A78BFA; color:#A78BFA;">
+                  <span>Interaction</span>
+                  <div style="display:flex;align-items:center;gap:6px;font-size:13px;color:#fff">📱 Web API</div>
+                </div>
               </div>
-
-              <div class="g-node" id="gn-loc" style="top:65%; left:25%; transform:translate(-50%, -50%); border-color:#475569;">
-                <span style="color:#FBBF24">Location Domain</span>
-                <div style="display:flex;align-items:center;gap:6px;font-size:14px">🏪 Grand Plaza Mall</div>
-              </div>
-
-              <div class="g-node" id="gn-prod" style="top:65%; left:75%; transform:translate(-50%, -50%); border-color:#475569;">
-                <span style="color:#34D399">Product Domain</span>
-                <div style="display:flex;align-items:center;gap:6px;font-size:14px">☕ Glitchara Espresso</div>
-              </div>
-
-              <div class="g-label" id="lbl-cl" style="top:42%; left:33%; transform:translate(-50%, -50%)">
-                <span style="color:#FBBF24">Visited 12x</span>
-                Last 30 Days
-              </div>
-
-              <div class="g-label" id="lbl-cp" style="top:42%; left:67%; transform:translate(-50%, -50%)">
-                <span style="color:#34D399">Purchased 8x</span>
-                Favorite Item
-              </div>
-
-              <div class="g-label" id="lbl-lp" style="top:70%; left:50%; transform:translate(-50%, -50%)">
-                <span>In Stock</span>
-                14 units available
-              </div>
-
-              <div id="mdm-insight" class="insight-overlay">
-                <h4>🎯 Targeted Retention Triggered</h4>
-                <p>Competitor mall opening 2km away detected. Multi-domain query instantly mapped Tariq's footprint and product preferences. <br><strong style="color:#059669;font-size:14px">Action:</strong> Automated 20% Espresso discount sent to Tariq for Grand Plaza Mall to ensure retention.</p>
+              
+              <div class="multi-panel-stage">
+                <div id="scenario-card" class="multi-panel-card">
+                  <div id="scenario-title" class="scenario-title">Initialize Engine</div>
+                  <div id="scenario-description" class="scenario-desc">System idle. Awaiting cross-domain query trigger.</div>
+                  <div id="scenario-action" class="scenario-act" style="display:none;"></div>
+                </div>
               </div>
             </div>
             
-            <button id="btn-run-scenario" class="btn-scenario" onclick="window.handleScenarioBtn()">▶ Run Retention Scenario</button>
+            <button id="btn-run-scenario" class="btn-scenario" onclick="window.handleScenarioBtn()">▶ Play Multi-Domain Scenarios</button>
           </div>
         </div>
 
@@ -2124,13 +2132,13 @@ const DGLineage = ({hex}) => {
   const c = hex;
   const flow = [
     {id:"src", label:"Source Systems", icon:"☁️", sub:"CloudCRM", 
-      meta:{owner:"Sarah Jenkins (VP Sales)", steward:"Mike Ross (Sales Ops)", pii:"Yes (Unmasked)", access:"Sales Team Only", glossary:"Raw Lead / Contact"}},
+     meta:{owner:"Sarah Jenkins (VP Sales)", steward:"Mike Ross (Sales Ops)", pii:"Yes (Unmasked)", access:"Sales Team Only", glossary:"Raw Lead / Contact"}},
     {id:"pipe", label:"Ingestion", icon:"⚙️", sub:"Fivetran / Airflow", 
-      meta:{owner:"Data Engineering Team", steward:"Data Pipeline On-Call", pii:"Encrypted in transit", access:"System Level Only", glossary:"Data Integration Pipeline"}},
+     meta:{owner:"Data Engineering Team", steward:"Data Pipeline On-Call", pii:"Encrypted in transit", access:"System Level Only", glossary:"Data Integration Pipeline"}},
     {id:"mdm", label:"MDM Hub", icon:"🏆", sub:"Golden Record", 
-      meta:{owner:"Chief Data Officer", steward:"Priya Sharma (MDM Lead)", pii:"Yes (Tokenized)", access:"Approved Consumers via API", glossary:"Master Customer Entity"}},
+     meta:{owner:"Chief Data Officer", steward:"Priya Sharma (MDM Lead)", pii:"Yes (Tokenized)", access:"Approved Consumers via API", glossary:"Master Customer Entity"}},
     {id:"bi", label:"BI Dashboard", icon:"📊", sub:"Tableau Exec View", 
-      meta:{owner:"Finance Dept", steward:"David Lee (BI Analyst)", pii:"Aggregated (No PII)", access:"Executive Board", glossary:"Quarterly Churn Metric"}},
+     meta:{owner:"Finance Dept", steward:"David Lee (BI Analyst)", pii:"Aggregated (No PII)", access:"Executive Board", glossary:"Quarterly Churn Metric"}},
   ];
   const cur = flow.find(x=>x.id===node);
 
@@ -2572,7 +2580,7 @@ const JMap = ({onClick}) => {
 
 const Schedule = () => {
   const days = [
-    {day:"Sunday",   dur:"2–3 hrs", type:"Deep Dive",       c:"#0284C7",l:"#E0F2FE", desc:"New module intro · Wayground/Miro · Group challenge · Analogy battle"},
+    {day:"Sunday",   dur:"2–3 hrs", type:"Deep Dive",        c:"#0284C7",l:"#E0F2FE", desc:"New module intro · Wayground/Miro · Group challenge · Analogy battle"},
     {day:"Monday",   dur:"1 hr",    type:"Concept Replay",  c:"#D97706",l:"#FFFBEB", desc:"Quick recap · 'Explain like I'm 5' round · Spot the bluffer"},
     {day:"Tuesday",  dur:"1 hr",    type:"Hands-On",        c:"#E11D48",l:"#FFF1F2", desc:"Tool sandbox · Chaos dataset drop · Practical exercise · Tool demo"},
     {day:"Wednesday",dur:"1 hr",    type:"Debate & Probe",  c:"#6D28D9",l:"#F5F3FF", desc:"Scenario-based argument · No right answer · Probe for reasoning"},
@@ -2580,7 +2588,7 @@ const Schedule = () => {
   ];
   const weeks = [
     {wk:"Wk 1",topic:"Data Quality",    c:"#0284C7",sun:"DQ Dimensions + Profiling + Scorecards",  wd:"Rules → Cleansing → Pipeline DQ → Reflection"},
-    {wk:"Wk 2",topic:"MDM Part 1",      c:"#D97706",sun:"MDM Intro + Trust + Match/Merge",          wd:"Survivorship → Validation → Hub Types → Reflection"},
+    {wk:"Wk 2",topic:"MDM Part 1",      c:"#D97706",sun:"MDM Intro + Trust + Match/Merge",         wd:"Survivorship → Validation → Hub Types → Reflection"},
     {wk:"Wk 3",topic:"MDM Part 2",      c:"#D97706",sun:"Hierarchies + Relationships + Domains",    wd:"Domains → Golden Record → Xref Tables → Reflection"},
     {wk:"Wk 4",topic:"Publication",     c:"#E11D48",sun:"Channels + Batch vs Real-Time + Contracts",wd:"Subscriptions → Lineage → Contracts → Reflection"},
     {wk:"Wk 5",topic:"Data Governance", c:"#6D28D9",sun:"Ownership + Policies + Glossary",          wd:"Lineage → Compliance → Maturity → Final Reflection"},
@@ -2621,7 +2629,7 @@ const Schedule = () => {
 
 const Methods = ({onProbe}) => {
   const list = [
-    {i:"🗺️",n:"Wayground",          d:"Collaborative visual journey maps — trace data flows, lineage, hierarchies in real-time."},
+    {i:"🗺️",n:"Wayground",         d:"Collaborative visual journey maps — trace data flows, lineage, hierarchies in real-time."},
     {i:"🎤",n:"Teach It Back",       d:"Student explains a concept back. ALCH grades them live. Instant depth probe."},
     {i:"💥",n:"Chaos Dataset",       d:"Drop a messy dataset. No instructions. Watch who asks vs who dives blind vs who panics."},
     {i:"🎭",n:"Debate Rounds",       d:"'Convince me DQ matters more than MDM.' Forces structured, reasoned thinking."},
